@@ -1,10 +1,10 @@
 <#
 .SYNOPSIS
-Define functions to help classify photo and video files, based on the file's CreateDate exif tag or a possible date found in the file name.
+Define functions to help classify photo and video files, based on the file's date exif tags or a possible date found in the file name.
 .DESCRIPTION
-Define functions to help classify photo and video files, based on the file's CreateDate exif tag or a possible date found in the file name.
+Define functions to help classify photo and video files, based on the file's date exif tags or a possible date found in the file name.
 
-ExifTool by Phil Harvey (https://exiftool.org/) is installed and its directory is added into the PATH environment variable.
+This script will ensure that ExifTool by Phil Harvey (https://exiftool.org/) is installed and its directory is added into the PATH environment variable.
 .EXAMPLE
 . ~/Documents/photos_sort_tools/Sort-PhotoDateTools.ps1 -Verbose
 Dot-sourcing call of Sort-PhotoDateTools.ps1, to install ExifTool, or verify if it is already installed, and define functions to help sorting photo and video files.
@@ -121,76 +121,6 @@ if ( -not IsWritableByExifTool($File.Extension) ) {
 }
 Write-Verbose "ok, IsWritableByExifTool is available."
 
-function Get-DateExifToolTag {
-<#
-.SYNOPSIS
-Return a date ExifTool tag of a file.
-.DESCRIPTION
-Uses ExifTool by Phil Harvey to return a [DateTime] object from a date Exif tag of a file, like CreateDate, or one of its file system date, like FileModifyDate .
-
-Return [DateTime]::MinValue if the date exif tag does not exist or could not be read by ExifTool.
-Return an exception if the tage name does not contain 'date'.
-Return an exception if the file does not exist.
-.NOTES
-Using the function Get-LastWriteTime is much faster than using Get-DateExifToolTag with the tag 'FileModifyDate'.
-
-PREREQUISITE: 
-ExifTool by Phil Harvey (https://exiftool.org/) must be installed and its directory must be in the PATH environment variable.
-.EXAMPLE
-$photo_Date = Get-DateExifToolTag CreateDate ~/Documents/test_photos/photo_1.jpg
-
-Set $photo_Date with the CreateDate exif tag of the file ~/Documents/test_photos/photo_1.jpg .
-.EXAMPLE
-$photo_Date = Get-DateExifToolTag FileModifyDate ~/Documents/test_photos/photo_1.jpg
-
-Set $photo_Date with the FileModifyDate of the file ~/Documents/test_photos/photo_1.jpg .
-#>
-[CmdletBinding()]
-    [OutputType([DateTime])]
-    param (
-        # The tag name to be extracted
-        [Parameter(Mandatory, Position = 0)]
-        [string]$TagName,
-
-        # The literal path of the file from which the CreateDate exif tag is to be extracted.
-        [Parameter(Mandatory, ValueFromPipeline, Position = 1)]
-        [string]$LiteralPath
-    )
-    process {
-
-        # Return an exception if the tag name does not contain 'date'
-        if ( -not ( $TagName -like '*date*' ) ) { 
-            Throw "This tag is not a date: `"${TagName}`"" 
-        }
-
-        # Return an exception if the file does nos exist
-        if ( -not ( Test-Path -LiteralPath $LiteralPath -PathType Leaf ) ) { 
-            Throw "This file does not exist: `"${LiteralPath}`"" 
-        }
-        
-        try { 
-            # Get the CreateDate exif tag, using exiftool command
-            if ( $TagName.StartsWith('-') ) { $tag_arg = $TagName } else { $tag_arg = '-' + $TagName }
-            $exif_date = & exiftool -s3 -d $DEFAULT_DATE_FORMAT_EXIFTOOL $tag_arg $LiteralPath
-            if ( $LASTEXITCODE -ne 0 ) { Throw "Exiftool EXIT CODE ${LASTEXITCODE} trying to get '${TagName}' tag from `"${LiteralPath}`"" }
-            if ( -not $exif_date ) { Throw "Tag not found." }
-
-            # Convert the CreateDate string to a [DateTime] object
-            $result = [DateTime]::ParseExact($exif_date, $DEFAULT_DATE_FORMAT_PWSH, $null)
-        }
-        catch [System.Management.Automation.CommandNotFoundException] {
-            $result = [DateTime]::MinValue
-            Throw "exiftool not found. Add the exiftool path to the PATH environment variable"
-        }
-        catch {
-            Write-Warning "date conversion error for '${$exif_date}' in Get-DateExifToolTag( '${TagName}', '${LiteralPath}' ) "   
-            $result = [DateTime]::MinValue
-        }
-
-        return $result
-    }
-}
-Write-Verbose "ok, Get-DateExifToolTag is available."
 
 function Get-DateInFileName {
 <#
@@ -271,7 +201,7 @@ Return the minimum and maximun dates of photo files that may be in a folder name
 Return an ordered hash table: 
         [ordered]@{ 
             Min_date = [DateTime]$value     # [ included, ...
-            Max_date = [DateTime]$value     #        ...  excluded [
+            Max_date = [DateTime]$value     #              ...  excluded [
         } 
 
 To be in the folder date range, a date $date must verify Min_date <= $date < Max_date, so this expression must be True: ( ($date -ge $minmaxVar.Min_date) -and ($date -lt $minmaxVar.Max_date) )
@@ -371,144 +301,7 @@ Result:  $minmax_dates.Min_date = [DateTime]"2015-01-01 00:00:00" and $minmax_da
 }  
 Write-Verbose "ok, Get-DateMinMaxInFolderName is available."
 
-function Get-FileLastWriteTime {
-<#
-.SYNOPSIS
-Return the last write time (a.k.a. last modify date) of a file (not a directory).
-.DESCRIPTION
-Return the last write time (a.k.a. last modify date) of a file (not a directory).
-
-Return an exception if the file does not exist or if it is a directory.
-.EXAMPLE
-$photo_Date = Get-FileLastWriteTime ~/Documents/test_photos/photo_1.jpg
-
-Set $photo_Date with the last write time (a.k.a. last modify date) of the file ~/Documents/test_photos/photo_1.jpg .
-#>
-[CmdletBinding()]
-    [OutputType([DateTime])]
-    param (
-        # The literal path of the file from which the CreateDate exif tag is to be extracted.
-        [Parameter(Mandatory, ValueFromPipeline, Position = 0)]
-        [string]$LiteralPath
-    )
-    process {
-
-        # Return an exception if the file does nos exist
-        try {
-            $item = Get-Item -LiteralPath $LiteralPath -ErrorAction Stop
-            if ( -not ( ($item.Exists) -and ($item -is [System.IO.FileSystemInfo] ) ) ) {
-                throw "File does not exist" 
-            }
-        }
-        catch {
-            Throw "This file does not exist: `"${LiteralPath}`"" 
-        }
-        
-        $result = $item.LastWriteTime
-
-        return $result
-    }
-}
-Write-Verbose "ok, Get-FileLastWriteTime is available."
-
-
    
-function Set-CreateDateExif {
-<#
-.SYNOPSIS
-Set the CreateDate and DateTimeOriginal exif tags of a file. This is typically the date on which the photo or video was taken.
-.DESCRIPTION
-Uses ExifTool by Phil Harvey to set the CreateDate and DateTimeOriginal exif tags of a file.
-
-By default, the original file is preserved, renamed by adding '_original' to the file name. 
-So the modified file will be for ex. 'photo.jpg' and the original 'photo.jpg_original'. (Default behavior of ExifTool)
-
-With the '-overwrite_original' argument, the original file is not preserved, it is overwritten. (Option '-overwrite_original' of ExifTool)
-
-Return an exception if the file does not exist.
-Return an exception if the provided date to set is not valid.
-Return an exception if the provided date to set is equal to [DateTime]::MinValue .
-Return an exception if ExifTool failed to write.
-.NOTES
-PREREQUISITE: 
-ExifTool by Phil Harvey (https://exiftool.org/) must be installed and its directory must be in the PATH environment variable.
-.EXAMPLE
-Set-CreateDateExif ~/Documents/test_photos/photo_1.jpg '2025-01-24 13:32:42'
-
-Set the CreateDate and DateTimeOriginal exif tags of the file ~/Documents/test_photos/photo_1.jpg with the date '2025-01-24 13:32:42'.
-.EXAMPLE
-$file_name = '~/Documents/test_photos/IMG_20160319_140220.jpg'
-Set-CreateDateExif $file_name ((Get-DateInFileName $file_name).ToString($DEFAULT_DATE_FORMAT_PWSH)) 
-
-Set the CreateDate and DateTimeOriginal exif tags of the file ~/Documents/test_photos/IMG_20160319_140220.jpg with the date that is retrieved from in its file base name.
-#>
-[CmdletBinding()]
-    param (
-        # Literal path of the file for which a CreateDate exif tag must be written.
-        [Parameter(Mandatory, ValueFromPipeline, Position = 0)]
-        [string]$LiteralPath,
-
-        # Date string to write as a CreateDate exif tag into the file. 
-        # Must be formatted as $DEFAULT_DATE_FORMAT_PWSH (.NET)
-        [Parameter(Mandatory, Position = 1)]
-        [string]$stringCreateDate,
-
-        # Overwrite the original file instead of preserving it by adding _original to the file name
-        [switch]$overwrite_original
-    )
-    begin {
-        if ( $overwrite_original ) {
-            Write-Verbose "[Set-CreateDateExif] Warning: -overwrite_original argument, so the original files will not be preserved by adding '_original' to their names."
-        }
-        else {
-            Write-Verbose "[Set-CreateDateExif]: No -overwrite_original argument, so the original files will be preserved by adding '_original' to their names."
-        }
-    }
-    process {
-
-        # Return an exception if the file does nos exist
-        if ( -not ( Test-Path -LiteralPath $LiteralPath -PathType Leaf ) ) { 
-            Throw "This file does not exist: `"${LiteralPath}`"" 
-        }
-
-        # Check the date: must be a valid date
-        try {
-            $CreateDate = [DateTime]::ParseExact($stringCreateDate, $DEFAULT_DATE_FORMAT_PWSH, $null )
-        }
-        catch {
-            Throw "The provided string date argument is incorrect. It must be a valid date and formatted as '${DEFAULT_DATE_FORMAT_PWSH}' (.NET)."
-        }
-        # Check the date: must not be [DateTime]::MinValue
-        if ( $CreateDate -eq [DateTime]::MinValue ) {
-            Throw "The provided string date argument is incorrect: It cannot be [DateTime]::MinValue."
-        }
-        
-        # Set the CreateDate exif tag, using exiftool command
-        try { 
-            if ( $overwrite_original ) {
-                & exiftool -overwrite_original -d "%Y%-m%-d %H:%M:%S" -CreateDate="${stringCreateDate} -DateTimeOriginal="${stringCreateDate}" "${LiteralPath}"
-            }
-            else {
-                & exiftool -d "%Y%-m%-d %H:%M:%S" -CreateDate="${stringCreateDate} -DateTimeOriginal="${stringCreateDate}" "${LiteralPath}"
-            }
-            if ( $LASTEXITCODE -eq 0 ) {
-                Write-Verbose "[Set-CreateDateExif]: The CreateDate and DateTimeOriginal exif tags '${stringCreateDate}' were successfully written to '${LiteralPath}'."
-            }
-            else {
-                Throw "Exiftool failed to write the CreateDate and DateTimeOriginal exif tags to `"${LiteralPath}`"" 
-            }
-        }
-        catch [System.Management.Automation.CommandNotFoundException] {
-            Throw "exiftool not found. Add the exiftool path to the PATH environment variable"
-        }
-        catch {    
-            Throw
-        }
-
-        return
-    }
-}
-Write-Verbose "ok, Set-CreateDateExif is available."
 
 $gci_photo_dir_ScriptBlock = { 
 # Script Block to get the photo files from a directory, excluding some file names and path.
@@ -728,14 +521,15 @@ Get some data for every photo files in a directory.
 
 Return an [ArrayList] of 
     [PSCustomObject]@{
-        FullName         = [string]...          # full path of the file
-        FolderName       = [string]...          # Parent directory Name
-        Name             = [string]...          # file name
-        Extension        = [string]...          # Extension of the file name
-        Hash             = [string]...          # Hash of the file 
-        CreateDateExif   = [DateTime]...        # 'CreateDate exif tag if it exists, or else DateTimeOriginal exif tag
-        DateInFileName   = [DateTime]...        # The date that may appear in the file base name. See function Get-DateInFileName
-        LastWriteTime    = [DateTime]...        # The last write time (a.k.a. last modify date) of the file . See function Get-FileLastWriteTime
+        FullName          = [string]...          # full path of the file
+        FolderName        = [string]...          # Parent directory Name
+        Name              = [string]...          # file name
+        Extension         = [string]...          # Extension of the file name
+        Hash              = [string]...          # Hash of the file 
+        CreateDateExif    = [DateTime]...        # 'CreateDate exif tag if it exists,
+        DateTimeOriginal  = [DateTime]...        # 'DateTimeOriginal exif tag if it exists,
+        DateInFileName    = [DateTime]...        # The date that may appear in the file base name. See function Get-DateInFileName
+        LastWriteTime     = [DateTime]...        # The last write time (a.k.a. last modify date) of the file . See function Get-FileLastWriteTime
     }
 
 Throw an exception if the photo directory does not exist.
@@ -760,20 +554,18 @@ Get-PhotoDir_Data $photo_dir ([ref]$photo_list)
 
         # Script block to add to the result ArrayList the new [PSCustomObject] for the current file
         $Add_photo_data_entry_script_block = {
-            if ( ($CreateDateExif -eq [dateTime]::MinValue) -and ($DateTimeOriginal -ne [dateTime]::MinValue) )  { 
-                $CreateDateExif = $DateTimeOriginal     # CreateDate does not exist, so get DateTimeOriginal
-            }
             $DateInFileName = Get-DateInFileName $FullName
             $file = Get-Item $FullName 
             $new_photo_dates_obj = [PSCustomObject]@{
-                FullName        = $FullName
-                FolderName      = $file.Directory.Name
-                Name            = $file.Name
-                Extension       = $file.Extension
-                Hash            = (Get-FileHash $FullName).Hash
-                CreateDateExif  = $CreateDateExif
-                DateInFileName  = $DateInFileName
-                LastWriteTime   = $file.LastWriteTime
+                FullName            = $FullName
+                FolderName          = $file.Directory.Name
+                Name                = $file.Name
+                Extension           = $file.Extension
+                Hash                = (Get-FileHash $FullName).Hash
+                CreateDateExif      = $CreateDateExif
+                DateTimeOriginal    = $DateTimeOriginal
+                DateInFileName      = $DateInFileName
+                LastWriteTime       = $file.LastWriteTime
             }
             $Result_list.value.Add( $new_photo_dates_obj ) 1>$null
         }

@@ -1,10 +1,8 @@
 <#
 .SYNOPSIS
-Analyse the photo dates of a photo folder, compares the dates with the folder date range (computed from its name).
-The folder date range is computed from its coventional naming. See the function Get-DateMinMaxInFolderName.
+Analyze the dates of the photos in a folder and compare them with the folder's date range, which is calculated from its conventional name. (See the function Get-DateMinMaxInFolderName.)
 .DESCRIPTION
-The computed results are for the folder and for the photo dates CreateDateExif, DateInFileName and LastWriteTime.
-(CreateDateExif = CreateDate exif tag if it exists, or else DateTimeOriginal exif tag.)
+The computed results are for the folder and for the photo dates CreateDateExif, DateTimeOriginal, DateInFileName and LastWriteTime. S(ee the function Get-PhotoDir_Data.)
 
 Computed for the folder:
 * $nb_photos                              : Number of photo files.
@@ -21,7 +19,7 @@ The analyse result of the photo folder is ok ($true) if, for one property:
 * AND the date range of these dates is the same as the folder range: ( $nb_days_missing -eq 0 )
   Exception: for a YYYY-MM folder, $nb_days_missing is ignored because these folders often contain only a few day-to-day photos, not taken from the first to the last day of the month.
 
-Throw an exception if the directory does not exist or if it is not a valid format ('YYYY' or 'YYYY-MM[-DD[(xj)]][ title]' )
+Throw an exception if the directory does not exist or if its name does not allow to compute its date range. 
 .NOTES
 PREREQUISITE: 
 ExifTool by Phil Harvey (https://exiftool.org/) must be installed and its directory must be in the PATH environment variable.
@@ -32,10 +30,7 @@ photo_dates_Analysis.ps1 -Detailed '/home/denis/Documents/photo_sets/nostrucs/ph
 param (
     # The directory to be scanned. If it is a year-level, YYYY, then each sub-directory is analyzed one after the other.
     [Parameter(Mandatory, ValueFromPipeline, Position = 0)]
-    [string]$photo_folder,
-
-    # Detailed analysis: the folder global result line is followed by 1 detailed line for the folder and 1 detailed line per date property
-    [switch]$Detailed
+    [string]$photo_folder
 )
 begin {
     $ErrorActionPreference = 'Stop'
@@ -44,6 +39,9 @@ begin {
     if ( -not $Is_SortPhotoDateTools_Loaded ) {
         . (Join-Path $PSScriptRoot "Sort-PhotoDateTools.ps1" -Verbose:$false)
     }
+
+    $prop_list = ('CreateDateExif','DateTimeOriginal','DateInFileName','LastWriteTime')
+    $max_prop_length = ($prop_list | Measure-Object -Maximum -Property Length).Maximum
 }
 process {
 
@@ -101,7 +99,7 @@ process {
         $Is_Folder_YYYYMM = ( $photo_dir -match '^(.*/)(?<year>(19|20)\d\d)/\k<year>-(?<month>01|02|03|04|05|06|07|08|09|10|11|12)( .*)?$' )
 
 
-        foreach ( $date_prop in ('CreateDateExif','DateInFileName','LastWriteTime') ) {
+        foreach ( $date_prop in $prop_list ) {
             
             $is_prop_compliant = $false
             $nb_dates = -1
@@ -192,35 +190,33 @@ process {
         }
 
         # Detailed lines: the folder global result line is followed by 1 detailed line for the folder and 1 detailed line per date property
-        if ( $Detailed ) {
-            
-            # Folder Detailed line
-            if ( $result_ok ) { $color = 'DarkGreen' } else { $color = 'DarkRed' }
-            Write-Host -ForegroundColor $color "       Folder      : ${nb_photos} photos. Range [$($min_date_folder.ToString('yyyy-MM-dd')), $($max_date_folder.ToString('yyyy-MM-dd'))[ ."
-
-            foreach ( $date_prop in ('CreateDateExif','DateInFileName','LastWriteTime') ) {
-
-                $is_prop_compliant        = $date_data[${date_prop}].is_prop_compliant
-                $nb_dates                 = $date_data[${date_prop}].nb_dates
-                $nb_OutOfRange_dates      = $date_data[${date_prop}].nb_OutOfRange_dates
-                $nb_days_missing          = $date_data[${date_prop}].nb_days_missing
-                $min_date                 = $date_data[${date_prop}].min_date
-                $max_date                 = $date_data[${date_prop}].max_date
         
-                # Detail line for 1 date property
-                $line = "    ${date_prop}$(' ' * ('CreateDateExif'.Length - $date_prop.Length)) : ${nb_dates} dates.  "
-                if ( ${min_date} -ne [DateTime]::MinValue ) {
-                    $line += "Range [$($min_date.ToString('yyyy-MM-dd')), $($max_date.ToString('yyyy-MM-dd'))]. "
-                }
-                if ( ${nb_OutOfRange_dates} -ne -1 ) {
-                    $line += "${nb_OutOfRange_dates} out of folder range. "
-                }
-                if ( ${nb_days_missing} -ne -1 ) {
-                    $line += "${nb_days_missing} missing days. "
-                }
-                if ( $is_prop_compliant ) { $color = 'DarkGreen' } else { $color = 'DarkRed' }
-                Write-Host -ForegroundColor $color $line
+        # Folder Detailed line
+        if ( $result_ok ) { $color = 'DarkGreen' } else { $color = 'DarkRed' }
+        Write-Host -ForegroundColor $color "  Folder$(' ' * ($max_prop_length - 'Folder'.Length + 2)) : ${nb_photos} photos. Range [$($min_date_folder.ToString('yyyy-MM-dd')), $($max_date_folder.ToString('yyyy-MM-dd'))[ ."
+
+        foreach ( $date_prop in $prop_list ) {
+
+            $is_prop_compliant        = $date_data[${date_prop}].is_prop_compliant
+            $nb_dates                 = $date_data[${date_prop}].nb_dates
+            $nb_OutOfRange_dates      = $date_data[${date_prop}].nb_OutOfRange_dates
+            $nb_days_missing          = $date_data[${date_prop}].nb_days_missing
+            $min_date                 = $date_data[${date_prop}].min_date
+            $max_date                 = $date_data[${date_prop}].max_date
+    
+            # Detail line for 1 date property
+            $line = "    ${date_prop}$(' ' * ($max_prop_length - $date_prop.Length)) : ${nb_dates} dates.  "
+            if ( ${min_date} -ne [DateTime]::MinValue ) {
+                $line += "Range [$($min_date.ToString('yyyy-MM-dd')), $($max_date.ToString('yyyy-MM-dd'))]. "
             }
+            if ( ${nb_OutOfRange_dates} -ne -1 ) {
+                $line += "${nb_OutOfRange_dates} out of folder range. "
+            }
+            if ( ${nb_days_missing} -ne -1 ) {
+                $line += "${nb_days_missing} missing days. "
+            }
+            if ( $is_prop_compliant ) { $color = 'DarkGreen' } else { $color = 'DarkRed' }
+            Write-Host -ForegroundColor $color $line
         }
         
         # update the global number of folders not ok
