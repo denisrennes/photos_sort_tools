@@ -186,7 +186,7 @@ if ( $Do_calculate ) {
     # Calculate photo file data
     Write-Verbose "Calculating `$photo_list = data for the ${photo_count} photo/video files...' "
     $photo_list = [ArrayList]@()
-    get-PhotoDir_Data $photo_dir ([ref]$photo_list)
+    Get_PhotoDir_Data $photo_dir ([ref]$photo_list)
 
     # Export photo file data, to save time for subsequent executions when data will be imported and not calculated again
     Export_Clixml_CalculatedData $photoset_name $export_file_name ([ref]$photo_list)

@@ -5,7 +5,7 @@ This operation is performed for each subfolder of the given folder, if applicabl
 .DESCRIPTION
 The folder's date range is calculated from its normalized name: "YYYY-MM blabla" or "YYYY-MM-DD blabla" or "YYYY-MM-DD(xd) blabla". (See function Get_DateRange_From_Normalized_Folder_Name.)
 
-The computed results are for the folder and for the exif or file dates: CreateDateExif, DateTimeOriginal, DateInFileName and LastWriteTime. (See function Get-PhotoDir_Data.)
+The computed results are for the folder and for the exif or file dates: CreateDateExif, DateTimeOriginal, DateInFileName and LastWriteTime. (See function Get_PhotoDir_Data.)
 
 Computed for the folder:
 * Number of photo files in this folder.
@@ -105,7 +105,6 @@ process {
 
         # Results for the folder analysis
         $folder_result_ok = $false 
-        $folder_result_ok_property_list = @()        # Names of the properties that are compliant with the folder date range
         $is_main_folder = $false
         $folder_name = $photo_dir.Substring($main_folder_fullname.Length)       # Folder name, relative to the main folder
         if ( $folder_name.Length -le 0 ) {
@@ -115,7 +114,7 @@ process {
 
         # Get date data for all photo files contained in the photo folder
         $photo_list = [ArrayList]@()
-        Get-PhotoDir_Data $photo_dir ([ref]$photo_list) -no_recurse -Verbose:$false
+        Get_PhotoDir_Data $photo_dir ([ref]$photo_list) -no_recurse -no_hash -Verbose:$false
         
         # Number of photo files in this folder
         $nb_photos = $photo_list.Count
@@ -149,17 +148,17 @@ process {
             $nb_dates = -1
             $nb_OutOfRange_dates = -1
             $nb_days_missing = -1
-            $min_date = [DateTime]::MinValue
-            $max_date = [DateTime]::MinValue
+            $min_date = $null
+            $max_date = $null
 
             # sorted list of the dates of this property (date-only, the time part is discarded)
-            $sorted_dates = @( $photo_list.$date_prop | Where-Object { ( $_ -ne [DateTime]::MinValue ) } | Sort-Object | ForEach-Object { $_.Date } )
+            $sorted_dates = @( $photo_list.$date_prop | Sort-Object | ForEach-Object { $_.Date } )
             $nb_dates = $sorted_dates.Count
 
             if ( $nb_dates -ne 0 ) {
 
                 # Dates out of folder date range
-                if ($min_date_folder -eq [DateTime]::MinValue) {
+                if ( $min_date_folder -eq $null ) {
                     $nb_OutOfRange_dates = $nb_dates        # all property dates are assumed out of range because there is no folder range
                 }
                 else {
@@ -173,7 +172,7 @@ process {
 
 
                 # Number of days missing in the property date range, to be equal to the folder's Date Range. (Only if the property date range is included in the folder date range.)
-                if ($min_date_folder -ne [DateTime]::MinValue) {
+                if ( $min_date_folder ) {
                     if ( ($min_date -ge $min_date_folder) -and ($max_date -le $max_date_folder) ) {
                         $nb_days_missing = ($min_date - $min_date_folder).TotalDays + ($max_date_folder - $max_date).TotalDays
                     }
@@ -264,7 +263,7 @@ process {
         
         # First line: general per-folder results
         $line = "  {0,-$($max_prop_length + 2)} : {1,4} photos" -f 'Folder', $nb_photos
-        if ( $min_date_folder -ne [datetime]::MinValue ) {
+        if ( $min_date_folder ) {
             $line += ", " + (date_range_string $min_date_folder $max_date_folder)
         }
         else {
@@ -296,11 +295,11 @@ process {
         
                 # Date range for this property
                 $line = "    {0,-$($max_prop_length)} : {1,4} dates " -f $date_prop, $nb_dates
-                if ( $min_date -ne [DateTime]::MinValue ) {
+                if ( $min_date ) {
                     $line += ", " + (date_range_string $min_date $max_date)
                 }
                 
-                if ( $min_date_folder -ne [datetime]::MinValue ) {
+                if ( $min_date_folder ) {
                     # Nb of files which property date is out of the folder date range
                     if ( $nb_OutOfRange_dates -gt 0 ) {
                         $line += ", {0,4} out of folder range " -f $nb_OutOfRange_dates

@@ -127,7 +127,7 @@ if ( -not IsWritableByExifTool($File.Extension) ) {
 Write-Verbose "ok, IsWritableByExifTool is available."
 
 
-function Get-DateInFileName {
+function Get_DateInFileName {
 <#
 .SYNOPSIS
 Return the Date that may appear in the file base name.
@@ -144,15 +144,15 @@ Supported dates have a 4 digits year '19xx' or '20xx' (So noMiddle Ages dates or
 
 Supported file base name examples: '2015-07-06 18:21:32','IMG_20150706_182132_1','PIC_20150706_001', etc.
 
-Return [DateTime]::MinValue if no date and time could be retrieved into the file name.
+Return $null if no date and time could be retrieved into the file name.
 .NOTES
 The file existence is not verified.
 .EXAMPLE
-$photo_DateInFileName = Get-DateInFileName ~/Documents/test_photos/IMG_20150706_182132_1.jpg
+$photo_DateInFileName = Get_DateInFileName ~/Documents/test_photos/IMG_20150706_182132_1.jpg
 
 Set $photo_DateInFileName with the [DateTime]"2015-07-06 18:21:32" that was retrieved from the file name 'IMG_20150706_182132_1' .
 .EXAMPLE
-$photo_list = Get-ChildItem ~/Documents/test_photos -File -Recurse | Select-Object FullName,Directory,Name,BaseName,Extension,@{label="DateInFileName";expression={Get-DateInFileName $_}}
+$photo_list = Get-ChildItem ~/Documents/test_photos -File -Recurse | Select-Object FullName,Directory,Name,BaseName,Extension,@{label="DateInFileName";expression={Get_DateInFileName $_}}
 
 Set $photo_list with the list of custom objects from the files into ~/Documents/test_photos . Each custom objet has the properties FullName,Directory,Name,BaseName,Extension,DateInFileName .
 #>
@@ -183,18 +183,18 @@ Set $photo_list with the list of custom objects from the files into ~/Documents/
                 }
             }
             catch {
-                throw "date conversion error for '${$date_in_filename_s}' in Get-DateInFileName( '${LiteralPath}' ) "   
+                throw "date conversion error for '${$date_in_filename_s}' in Get_DateInFileName( '${LiteralPath}' ) "   
             }
         }
         else {
             # no date found in the file name
-            $date_in_filename = [DateTime]::MinValue
+            $date_in_filename = $null
         }
 
         return $date_in_filename
     }
 }  
-Write-Verbose "ok, Get-DateInFileName is available."
+Write-Verbose "ok, Get_DateInFileName is available."
 
 # Type of a date-normalized folder name 
 enum PhotoFolderType {
@@ -255,8 +255,8 @@ Result:  $minmax_dates.Min_date = [DateTime]"2015-01-01 00:00:00" and $minmax_da
         }
         $folder_base_name = $Path.BaseName
 
-        $min_date = [DateTime]::MinValue
-        $max_date = [DateTime]::MinValue
+        $min_date = $null
+        $max_date = $null
         $Folder_Type = [PhotoFolderType]::none
 
         try {
@@ -299,8 +299,8 @@ Result:  $minmax_dates.Min_date = [DateTime]"2015-01-01 00:00:00" and $minmax_da
         }
         catch {
             # No correct date pattern found in the folder name ${folder_base_name}.
-            $min_date = [DateTime]::MinValue
-            $max_date = [DateTime]::MinValue
+            $min_date = $null
+            $max_date = $null
             $Folder_Type = [PhotoFolderType]::none
         }
 
@@ -524,7 +524,7 @@ $photos_list = Import_Clixml_CalculatedData 'nostrucs'
 Write-Verbose "ok, Import_Clixml_CalculatedData is available."
 
  
-function Get-PhotoDir_Data {
+function Get_PhotoDir_Data {
 <#
 .SYNOPSIS
 Get some data for every photo files in a photo directory.
@@ -540,7 +540,7 @@ Return an [ArrayList] of
         Hash              = [string]...          # Hash of the file 
         CreateDateExif    = [DateTime]...        # 'CreateDate exif tag if it exists,
         DateTimeOriginal  = [DateTime]...        # 'DateTimeOriginal exif tag if it exists,
-        DateInFileName    = [DateTime]...        # The date that may appear in the file base name. See function Get-DateInFileName
+        DateInFileName    = [DateTime]...        # The date that may appear in the file base name. See function Get_DateInFileName
         LastWriteTime     = [DateTime]...        # The last write time (a.k.a. last modify date) of the file . See function Get-FileLastWriteTime
     }
 
@@ -550,7 +550,7 @@ PREREQUISITE:
 ExifTool by Phil Harvey (https://exiftool.org/) must be installed and its directory must be in the PATH environment variable.
 .EXAMPLE
 $photo_list = [ArrayList]@()
-Get-PhotoDir_Data $photo_dir ([ref]$photo_list)
+Get_PhotoDir_Data $photo_dir ([ref]$photo_list)
 #>
 [CmdletBinding()]
     param (
@@ -562,20 +562,25 @@ Get-PhotoDir_Data $photo_dir ([ref]$photo_list)
         [Parameter(Mandatory, Position = 1)]
         [ref][ArrayList]$Result_list,
 
-        [switch]$no_recurse
+        # Do no process the subdirectories
+        [switch]$no_recurse,
+        
+        # Do not compute the file hash
+        [switch]$no_hash
+        
     )
     begin {
 
         # Script block to add to the result ArrayList the new [PSCustomObject] for the current file
         $Add_photo_data_entry_script_block = {
-            $DateInFileName = Get-DateInFileName $FullName
+            $DateInFileName = Get_DateInFileName $FullName
             $file = Get-Item $FullName 
             $new_photo_dates_obj = [PSCustomObject]@{
                 FullName            = $FullName
                 FolderName          = $file.Directory.Name
                 Name                = $file.Name
                 Extension           = $file.Extension
-                Hash                = (Get-FileHash $FullName).Hash
+                Hash                = if ( $no_hash ) { $null } else { (Get-FileHash $FullName).Hash }
                 CreateDateExif      = $CreateDateExif
                 DateTimeOriginal    = $DateTimeOriginal
                 DateInFileName      = $DateInFileName
@@ -588,15 +593,15 @@ Get-PhotoDir_Data $photo_dir ([ref]$photo_list)
 
         Write-Verbose "Getting photo files data from '${photo_dir}'..."
         if ( -not (Test-Path $photo_dir -PathType Container) ) {
-            Throw "Get-PhotoDir_Data: the photo directory does not exist or is not a directory: '${photo_dir}' "
+            Throw "Get_PhotoDir_Data: the photo directory does not exist or is not a directory: '${photo_dir}' "
         }
 
         $Result_list.Value = [ArrayList]@() 
 
         # Base variables to store the values parsed from the output lines of ExitTool command
         $FullName = ''
-        $CreateDateExif = [dateTime]::MinValue
-        $DateTimeOriginal = [dateTime]::MinValue
+        $CreateDateExif = $null
+        $DateTimeOriginal = $null
 
         # ExifTool command to get the file full path, CreateDate and DateTimeOriginal for every photo file of $photo_dir
         # This is 16 times much faster than using Get-ChildItem and callin ExifTool for each file
@@ -632,8 +637,8 @@ Get-PhotoDir_Data $photo_dir ([ref]$photo_list)
 
                     # reset current file values of ExifTool output lines parsing
                     $FullName = ''
-                    $CreateDateExif = [dateTime]::MinValue
-                    $DateTimeOriginal = [dateTime]::MinValue
+                    $CreateDateExif = $null
+                    $DateTimeOriginal = $null
                 }
                 
                 # New file
@@ -645,7 +650,7 @@ Get-PhotoDir_Data $photo_dir ([ref]$photo_list)
                     $CreateDateExif = [dateTime]::ParseExact( $line.substring(12), ${DEFAULT_DATE_FORMAT_PWSH}, $null)
                 }
                 catch {
-                    $CreateDateExif = [dateTime]::MinValue
+                    $CreateDateExif = $null
                 }
             }
             elseif ( $line -like 'DateTimeOriginal: *') {
@@ -653,7 +658,7 @@ Get-PhotoDir_Data $photo_dir ([ref]$photo_list)
                     $DateTimeOriginal = [dateTime]::ParseExact( $line.substring(18), ${DEFAULT_DATE_FORMAT_PWSH}, $null)
                 }
                 catch {
-                    $DateTimeOriginal = [dateTime]::MinValue
+                    $DateTimeOriginal = $null
                 }
             }
             else {
@@ -667,15 +672,15 @@ Get-PhotoDir_Data $photo_dir ([ref]$photo_list)
 
                     # reset current file values of ExifTool output lines parsing
                     $FullName = ''
-                    $CreateDateExif = [dateTime]::MinValue
-                    $DateTimeOriginal = [dateTime]::MinValue
+                    $CreateDateExif = $null
+                    $DateTimeOriginal = $null
                 }
             }
         }
         Write-Verbose "... $($result_list.Value.Count) photo files."
     }
 }
-Write-Verbose "ok, Get-PhotoDir_Data is available."
+Write-Verbose "ok, Get_PhotoDir_Data is available."
 
 
 $Is_SortPhotoDateTools_Loaded = $True
