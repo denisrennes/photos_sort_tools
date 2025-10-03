@@ -68,7 +68,7 @@ Foreach ( $file in $mkv_files) {
         Write-Host " => OK."
     }
     else {
-        throw "ERROR: '${}' does not exist."
+        throw "ERROR: '${dest_fullname}' does not exist."
     }
 
 }

@@ -1,8 +1,8 @@
 <#
 .SYNOPSIS
-Define functions to help classify photo and video files, based on the file's date exif tags or a possible date found in the file name.
+Defines functions for sorting photo and video files based on the file's EXIF date tags or a date that may be specified in the file name.
 .DESCRIPTION
-Define functions to help classify photo and video files, based on the file's date exif tags or a possible date found in the file name.
+Defines functions for sorting photo and video files based on the file's EXIF date tags or a date that may be specified in the file name.
 
 This script will ensure that ExifTool by Phil Harvey (https://exiftool.org/) is installed and its directory is added into the PATH environment variable.
 .EXAMPLE
@@ -11,6 +11,7 @@ Dot-sourcing call of Sort-PhotoDateTools.ps1, to install ExifTool, or verify if 
 
 #>
 using namespace System.Collections
+using namespace System.Collections.Generic
 
 [CmdletBinding()]
     param (
@@ -61,8 +62,8 @@ if ( Test-Path $exiftool_path ) {
 
 # Install ExifTool if it is not installed
 if ( -not $exiftool_version ) {
-    Write-Verbose "Installing ExifTool by Phil Harvey to '${exiftool_path}' ..."
-    & git clone https://github.com/exiftool/exiftool.git $exiftool_path
+    Write-Host -NoNewline "Installing ExifTool by Phil Harvey to '${exiftool_path}' ... "
+    & git clone --quiet  https://github.com/exiftool/exiftool.git $exiftool_path 
     # Verify that ExifTool is correctly installed
     try {
         [Version]$exiftool_version = & $exiftool -ver
@@ -70,9 +71,13 @@ if ( -not $exiftool_version ) {
     catch {
         $exiftool_version = $null
     }
-}
-if ( -not $exiftool_version ) { 
-    Throw "Exiftool is not correctly installed in '${exiftool_path}'"
+    if ( $exiftool_version ) { 
+        Write-Host "ok"
+    }
+    else {
+        Write-Host "Error!"
+        Throw "Exiftool is not correctly installed in '${exiftool_path}'"
+    }
 }
 # Add ExifTool path to the environment variable PATH
 $env:PATH = ( (($env:PATH -split ':') | Where-Object { $_ -ne $exiftool_path}  ) -join ':' ) + ':' + $exiftool_path
@@ -131,11 +136,11 @@ Return a [DateTime] object computed from the date or date and time that may appe
 
 Filenames supported: any name containing a date like "YYYYMMdd HHmmss" or "YYYYMMdd" with various separator characters and possibly a text prefix and/or a text suffix.
 
-Separator character possible for date (only one or none):                 - . : _ <space>
-Separator character possible for time (only one or none):                 - . : _ <space>
-Separator character possible between date and time (only one or none):    - . : _ T <space>
+Optional separator character for date (the same for the whole date string):                 - . : _ <space>
+Optional separator character for time (the same for the whole time string):                 - . : _ <space>
+Optional separator character between date and time:                                         - . : _ T <space>
 
-Supported dates have a 4 digits year '19xx' or '20xx' (so no dates from the Middle Ages or Star Trek ;-)
+Supported dates have a 4 digits year '19xx' or '20xx' (So noMiddle Ages dates or Star Trek dates ;-)
 
 Supported file base name examples: '2015-07-06 18:21:32','IMG_20150706_182132_1','PIC_20150706_001', etc.
 
@@ -191,45 +196,47 @@ Set $photo_list with the list of custom objects from the files into ~/Documents/
 }  
 Write-Verbose "ok, Get-DateInFileName is available."
 
-function Get-DateMinMaxInFolderName {
+# Type of a date-normalized folder name 
+enum PhotoFolderType {
+    none        # not date-normalized
+    Year        # “2025 blabla”
+    Month       # “2025-11 blabla”
+    Day         # “2025-11-29 blabla”
+    DayRange    # “2025-11-29(2d) blabla”  
+}
+function Get_DateRange_From_Normalized_Folder_Name {
 <#
 .SYNOPSIS
-Return the minimum and maximun dates of photo files that may be in a folder name, based on the date that may be in the folder name.
+Return the minimum and maximun dates of photo files that may be in a folder name, based on the normalized name of the folder.
 .DESCRIPTION
-Return the minimum and maximun dates of photo files that may be in a folder name, based on the date that may be in the folder name.
+Return the minimum and maximun dates of photo files that may be in a folder name, based on the normalized name of the folder.
+
+Normalized folder names supported ("blabla" is an optional text following the date pattern):
+* “2025 blabla” : Min_date = "2025-01-01 00:00:00" (included), Max_date = "2026-01-01 00:00:00" (excluded).
+* “2025-11 blabla” : Min_date = "2025-11-01 00:00:00" (included), Max_date = "2025-12-01 00:00:00" (excluded).
+* “2025-11-29 blabla” : Min_date = "2025-12-29 00:00:00" (included), Max_date = "2025-12-30 00:00:00" (excluded).
+* “2025-11-29(2d) blabla” ("2j" is supported, for French "jour") :  Min_date ="2025-12-29 00:00:00" (included), Max_date = "2025-12-31 00:00:00" (excluded).
+
+Supported dates have a 4 digits year '19xx' or '20xx' (So Middle Ages dates or Star Trek dates are not supported ;-)
 
 Return an ordered hash table: 
         [ordered]@{ 
-            Min_date = [DateTime]$value     # [ included, ...
-            Max_date = [DateTime]$value     #              ...  excluded [
+            Min_date = [DateTime]$value     # [ included
+            Max_date = [DateTime]$value     #    excluded [
+            Folder_Type = [PhotoFolderType]$value
         } 
+Throw an exception if the folder does not exist.
 
-To be in the folder date range, a date $date must verify Min_date <= $date < Max_date, so this expression must be True: ( ($date -ge $minmaxVar.Min_date) -and ($date -lt $minmaxVar.Max_date) )
-To be OUT OF the folder date range, a date $date must verify (($date < Min_date) or ($date >= Max_date)), so this expression must be True: ( ($date -lt $minmaxVar.Min_date) -or ($date -ge $minmaxVar.Max_date) )
-
-Folder names supported: any name starting with a date like (all below patterns can possibly be followed by a space and some text, as folder description or title):
-* “2025” :                    Min_date=>"2025-01-01 00:00:00" (included), Max-date=Min_date.AddYears(1)  => "2026-01-01 00:00:00" (excluded).
-* “2025-11” :                 Min_date=>"2025-11-01 00:00:00" (included), Max-date=Min_date.AddMonths(1) => "2025-12-01 00:00:00" (excluded).
-* “2025-11-29” :              Min_date=>"2025-12-29 00:00:00" (included), Max-date=Min_date.AddDays(1)   => "2025-12-30 00:00:00" (excluded).
-* “2025-11-29(2j)” (or (2d))  Min_date=>"2025-12-29 00:00:00" (included), Max-date=Min_date.AddDays(2)   => "2025-12-31 00:00:00" (excluded).
-
-Supported dates have a 4 digits year '19xx' or '20xx' (so no dates from the Middle Ages or Star Trek dates ;-)
-
-if a file is given as argument then its parent directory is processed, the file is ignored.
 .NOTES
-The folder existence is verified, and the file existence too, if a file has been given.
+The folder existence is verified.
 .EXAMPLE
-$minmax_dates = Get-DateMinMaxInFolderName '~/Documents/2015/2015-12 Christmas'
+$minmax_dates = Get_DateRange_From_Normalized_Folder_Name '~/Documents/2015/2015-12 Christmas'
 
-Result:  $minmax_dates.Min_date = [DateTime]"2015-12-01 00:00:00" and $minmax_dates.Max_date = [DateTime]"2016-01-01 00:00:00". They were calculated from the directory name '/2015-12 Christmas/'.
+Result:  $minmax_dates.Min_date = [DateTime]"2015-12-01 00:00:00" and $minmax_dates.Max_date = [DateTime]"2016-01-01 00:00:00" (excluded).
 .EXAMPLE
-$minmax_dates = Get-DateMinMaxInFolderName '~/Documents/2015/2015-12-25 Christmas/IMG_20151225_202132_1.jpg'
+$minmax_dates = Get_DateRange_From_Normalized_Folder_Name '~/Documents/2015'
 
-Result:  $minmax_dates.Min_date = [DateTime]"2015-12-25 00:00:00" and $minmax_dates.Max_date = [DateTime]"2015-12-26 00:00:00". They were calculated from the PARENT directory name '/2015-12 Christmas/'.
-.EXAMPLE
-$minmax_dates = Get-DateMinMaxInFolderName '~/Documents/2015'
-
-Result:  $minmax_dates.Min_date = [DateTime]"2015-01-01 00:00:00" and $minmax_dates.Max_date = [DateTime]"2016-01-01 00:00:00". They were calculated from the directory name '/2015/'.
+Result:  $minmax_dates.Min_date = [DateTime]"2015-01-01 00:00:00" and $minmax_dates.Max_date = [DateTime]"2016-01-01 00:00:00" (excluded).
 #>
 [CmdletBinding()]
     param (
@@ -243,63 +250,68 @@ Result:  $minmax_dates.Min_date = [DateTime]"2015-01-01 00:00:00" and $minmax_da
     process {
         # Get the folder base name. Example '2015-12 Christmas'
         $path = Get-Item $LiteralPath -ErrorAction SilentlyContinue
-        if ( -not $Path ) {
-            throw "Get-DateMinMaxInFolderName: This file or folder path does not exist: '${LiteralPath}') "
-        }
-        if ( $path -is [System.IO.FileInfo] ) {
-            # $LiteralPath is a file, so get its parent directory
-            $path = $path.Directory
-        }
-        if ( -not ($path -is [System.IO.DirectoryInfo]) ) {
-            throw "Get-DateMinMaxInFolderName: This path is not a file or a directory: '${LiteralPath}') "
+        if ( (-not $Path) -or (-not $path.PSIsContainer) ) {
+            throw "Get_DateRange_From_Normalized_Folder_Name: This path does not exist or is not a folder: '${LiteralPath}') "
         }
         $folder_base_name = $Path.BaseName
 
+        $min_date = [DateTime]::MinValue
+        $max_date = [DateTime]::MinValue
+        $Folder_Type = [PhotoFolderType]::none
+
         try {
-            if ( $folder_base_name -match $date_regex ) {
+            if ( $folder_base_name -match $date_regex ) {   
                 if ( $Matches.nb_days ) {
-                    if ( -not $Matches.Day ) {
-                        Write-Warning "Incorrect folder date '${folder_base_name}': (xd) or (xj) is only allowed after a YYYY-MM-dd date. Ignored for this folder."
+                    if ( -not ( ($Matches.Day) -and ($Matches.Month) -and ($Matches.Year) ) ) {
+                        throw "Folder name not date-normalized. (xd) or (xj) is only allowed after a YYYY-MM-dd date: '${folder_base_name}'"
                     }
-                    # (2j) or (2d) after the date ==> numbers of days of the folder date range
+                    # “2025-11-29(2d) blabla”
+                    $Folder_Type = [PhotoFolderType]::DayRange  
                     $nb_days = $Matches.nb_days
-                }
-                else {
-                    # No (2j) or (2d) after the date ==> the folder date range is 1 day
-                    $nb_days = 1
-                }
-                if ( $Matches.Day ) {
-                    # YYYY-MM-DD or YYYY-MM-DD(xd) or YYYY-MM-DD(xj)
                     $min_date = [DateTime]($Matches.Year + '-' + $Matches.Month + '-' + $Matches.Day)  # YYYY-MM-dd 00:00:00
                     $max_date = $min_date.AddDays($nb_days)   # $nb_days after at 00:00:00 (excluded)
                 }
-                elseif ( $Matches.Month ) {
-                    # YYYY-MM
+                elseif ( ($Matches.Year) -and ($Matches.Month) -and ($Matches.Day) ) {
+                    # “2025-11-29 blabla”
+                    $Folder_Type = [PhotoFolderType]::Day
+                    $min_date = [DateTime]($Matches.Year + '-' + $Matches.Month + '-' + $Matches.Day)  # YYYY-MM-dd 00:00:00
+                    $max_date = $min_date.AddDays(1)   # 1 after at 00:00:00 (excluded)
+                }
+                elseif ( ($Matches.Year) -and ($Matches.Month) ) {
+                    # “2025-11 blabla”
+                    $Folder_Type = [PhotoFolderType]::Month
                     $min_date = [DateTime]($Matches.Year + '-' + $Matches.Month + '-01')    # YYYY-MM-01 00:00:00
                     $max_date = $min_date.AddMonths(1)      # the 1st of the month after, at 00:00:00 (excluded)
                 }
-                else {
+                elseif ( $Matches.Year ) {
                     # YYYY
+                    $Folder_Type = [PhotoFolderType]::Year
                     $min_date = [DateTime]($Matches.Year + '-01-01')        # YYYY-01-01
                     $max_date = $min_date.AddYears(1)   # # the 1st of January of the year after, at 00:00:00 (excluded)
                 }
+                else {
+                    throw "Folder name not date-normalized (yet it matches the regex...): '${folder_base_name}'"
+                }
             }
             else {
-                throw "No date found in the folder name ${folder_base_name}."
+                throw "Folder name not date-normalized: '${folder_base_name}'"
             }
         }
         catch {
+            # No correct date pattern found in the folder name ${folder_base_name}.
             $min_date = [DateTime]::MinValue
             $max_date = [DateTime]::MinValue
+            $Folder_Type = [PhotoFolderType]::none
         }
 
         return [ordered]@{ 
                 min_date = $min_date
                 max_date = $max_date
+                Folder_Type = $Folder_Type
             }
     }
 }  
-Write-Verbose "ok, Get-DateMinMaxInFolderName is available."
+Write-Verbose "ok, Get_DateRange_From_Normalized_Folder_Name is available."
 
    
 
@@ -548,7 +560,9 @@ Get-PhotoDir_Data $photo_dir ([ref]$photo_list)
 
         # Calculated data to export
         [Parameter(Mandatory, Position = 1)]
-        [ref][ArrayList]$Result_list
+        [ref][ArrayList]$Result_list,
+
+        [switch]$no_recurse
     )
     begin {
 
@@ -586,7 +600,13 @@ Get-PhotoDir_Data $photo_dir ([ref]$photo_list)
 
         # ExifTool command to get the file full path, CreateDate and DateTimeOriginal for every photo file of $photo_dir
         # This is 16 times much faster than using Get-ChildItem and callin ExifTool for each file
-        & exiftool -recurse -s2 -d "${DEFAULT_DATE_FORMAT_EXIFTOOL}" -CreateDate -DateTimeOriginal $photo_dir  --ext json --ext html --ext db --ext jbf --ext 'db@SynoEAStream' --ext 'jpg@SynoEAStream'  --ext 'pdf@SynoEAStream' | Foreach-Object {
+        if ( $no_recurse ) {
+            $arg_recurse = $false
+        }
+        else {
+            $arg_recurse = $true
+        }
+        & exiftool -recurse:${arg_recurse} -s2 -d "${DEFAULT_DATE_FORMAT_EXIFTOOL}" -CreateDate -DateTimeOriginal $photo_dir  --ext json --ext html --ext db --ext jbf --ext 'db@SynoEAStream' --ext 'jpg@SynoEAStream'  --ext 'pdf@SynoEAStream' | Foreach-Object {
 
             $line = $_
 

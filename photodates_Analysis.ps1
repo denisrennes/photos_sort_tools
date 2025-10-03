@@ -1,34 +1,38 @@
 <#
 .SYNOPSIS
-Analyze the dates of the photos in a folder and compare them with the folder's date range, which is calculated from its conventional name. (See the function Get-DateMinMaxInFolderName.)
+Analyze the dates of the photos in a folder and compare them with the folder's date range, which is calculated from its normalized name. (See function Get_DateRange_From_Normalized_Folder_Name.)
+This operation is performed for each subfolder of the given folder, if applicable.
 .DESCRIPTION
-The computed results are for the folder and for the photo dates CreateDateExif, DateTimeOriginal, DateInFileName and LastWriteTime. S(ee the function Get-PhotoDir_Data.)
+The folder's date range is calculated from its normalized name: "YYYY-MM blabla" or "YYYY-MM-DD blabla" or "YYYY-MM-DD(xd) blabla". (See function Get_DateRange_From_Normalized_Folder_Name.)
+
+The computed results are for the folder and for the exif or file dates: CreateDateExif, DateTimeOriginal, DateInFileName and LastWriteTime. (See function Get-PhotoDir_Data.)
 
 Computed for the folder:
-* $nb_photos                              : Number of photo files.
-* [$min_date_folder, $max_date_folder[    : Folder Date Range (date part only, no time). Date range of the folder, computed from its name. $max_date_folder is excluded. See function Get-DateMinMaxInFolderName.
+* Number of photo files in this folder.
+* Date range of the folder, computed from its name: $min_date_folder (included), $max_date_folder (excluded). See function Get_DateRange_From_Normalized_Folder_Name.
 
-Computed for each property CreateDateExif, DateInFileName and LastWriteTime:
-* $nb_dates                  : Number of photo files having a valid date for this property.
-* $nb_OutOfRange_dates       : Number of photo files having a date out of the Folder Date Range.
-* [$min_date, $max_date]     : Date range for this property. (date part only, no time). $max_date is included.
-* $nb_days_missing           : Number of days missing in the property date range, to be equal to the folder's Date Range. (Only if the property date range is included in the folder date range.)
+Computed for each property CreateDateExif, DateTimeOriginal,DateInFileName and LastWriteTime:
+* Number of photo files having a valid date for this property.
+* Number of photo files having a date out of the Folder Date Range for this property.
+* Date range for this property: [$min_date, $max_date[
+* Number of days missing in the property date range, to be equal to the folder's Date Range. (Only if the property date range is included in the folder date range.)
 
-The analyse result of the photo folder is ok ($true) if, for one property:
-* all photo have this property date and all dates are within the folder date range: ( ( $nb_dates -eq $nb_photos ) -and ( $nb_OutOfRange_dates -eq 0 ) )
-* AND the date range of these dates is the same as the folder range: ( $nb_days_missing -eq 0 )
-  Exception: for a YYYY-MM folder, $nb_days_missing is ignored because these folders often contain only a few day-to-day photos, not taken from the first to the last day of the month.
+The result of the photo file analysis is ok for a property if all of the following conditions are met (AND):
+* All photos have this property date
+* All dates are within the folder date range.
+* For an "YYYY-MM-DD(xd)"" pattern, the date range of these dates is the same as the folder date range.
 
 Throw an exception if the directory does not exist or if its name does not allow to compute its date range. 
 .NOTES
-PREREQUISITE: 
-ExifTool by Phil Harvey (https://exiftool.org/) must be installed and its directory must be in the PATH environment variable.
+ExifTool by Phil Harvey (https://exiftool.org/) may be automatically installed and its directory put in the PATH environment variable.
 .EXAMPLE
-photo_dates_Analysis.ps1 -Detailed '/home/denis/Documents/photo_sets/nostrucs/photo/2006/2006-04 Pâque + Ilan'
+photo_dates_Analysis.ps1 '/home/denis/Documents/photo_sets/nostrucs/photo/2006/2006-04 Pâque + Ilan'
 #>
+using namespace System.Collections
+using namespace System.Collections.Generic
 [CmdletBinding()]
 param (
-    # The directory to be scanned. If it is a year-level, YYYY, then each sub-directory is analyzed one after the other.
+    # The directory to be analyzed
     [Parameter(Mandatory, ValueFromPipeline, Position = 0)]
     [string]$photo_folder
 )
@@ -37,71 +41,111 @@ begin {
     $ProgressPreference = 'SilentlyContinue'
 
     if ( -not $Is_SortPhotoDateTools_Loaded ) {
-        . (Join-Path $PSScriptRoot "Sort-PhotoDateTools.ps1" -Verbose:$false)
+        . (Join-Path $PSScriptRoot "Sort-PhotoDateTools.ps1") -Verbose:$false
     }
 
     $prop_list = ('CreateDateExif','DateTimeOriginal','DateInFileName','LastWriteTime')
     $max_prop_length = ($prop_list | Measure-Object -Maximum -Property Length).Maximum
+    function display_normal {
+        param (
+            $message
+        )
+        Write-Host $message
+    }
+    function display_ok {
+        param (
+            $message
+        )
+        Write-Host $message -ForegroundColor Green
+    }
+    function display_notok {
+        param (
+            $message
+        )
+        Write-Host $message -ForegroundColor Red
+    }
+    function display_warning {
+        param (
+            $message
+        )
+        Write-Host $message -ForegroundColor DarkYellow
+    }
+    function date_range_string {
+        param (
+            [datetime]$min_date,
+            [datetime]$max_date
+        )
+        $nb_days = "{0,2}" -f (($max_date - $min_date).TotalDays)
+        Return "[$($min_date.ToString('yyyy-MM-dd')), $($max_date.ToString('yyyy-MM-dd'))[ (${nb_days} days)"
+    }
 }
 process {
 
-    if ( $photo_folder -match '^(.*/)(?<year>(19|20)\d\d)$' ) {
-        # Year folder: '.../YYYY/'
-        $photo_dir_list = Get-ChildItem -Directory $photo_folder | Sort-Object -Property Name
-        $Is_Year_Folder = $True
-    }
-    elseif ( $photo_folder -match '^(.*/)(?<year>(19|20)\d\d)/\k<year>-(?<month>01|02|03|04|05|06|07|08|09|10|11|12)(.*)?$' ) {
-        # Month or Day folder: '.../YYYY/YYYY-MM[-DD[(xj)]][ title]'
-        # the list is only 1 folder
-        $photo_dir_list = @( $photo_folder )
-        $Is_Year_Folder = $False
-    }
-    else {
-        Throw "The folder name does not have a valid format: '.../YYYY/' or 'YYYY-MM[-DD[(xj)]][ title]'."
+    # check the folder existence
+    $main_folder = Get-Item $photo_folder
+    if ( -not ($main_folder.PSIsContainer) ) {
+        throw "Not a folder: '${photo_folder}'"
     }
 
+    # Full path of the folder
+    $main_folder_fullname = $main_folder.FullName
+
+    # list of all directories and subdirectories to process
+    [List[String]]$photo_subdir_list = @( Get-ChildItem -Directory -Recurse $main_folder_fullname | Select-Object -ExpandProperty FullName | Sort-Object )
+    $photo_subdir_list.Insert(0, $main_folder_fullname)
+
+    # global results for all subfolders
+    $global_result_nb_folder_NOT_ok = 0
+    $global_main_has_subfolders = ($photo_subdir_list.Count -ge 2)
 
     # Process each folder
-    $global_result_nb_folder_NOT_ok = 0
+    :Next_subfolder foreach ( $photo_dir in $photo_subdir_list ) {
 
-    foreach ( $photo_dir in $photo_dir_list ) {
+        ###### COMPUTE FOLDER RESULTS ######
 
+        # Results for the folder analysis
+        $folder_result_ok = $false 
+        $folder_result_ok_property_list = @()        # Names of the properties that are compliant with the folder date range
+        $is_main_folder = $false
+        $folder_name = $photo_dir.Substring($main_folder_fullname.Length)       # Folder name, relative to the main folder
+        if ( $folder_name.Length -le 0 ) {
+            $is_main_folder = $true
+            $folder_name = $main_folder_fullname            # folder name: fullname for the main folder
+        }
 
-        # Final result for the folder analysis
-        $result_ok = $false 
-        $result_ok_property_list = @()        # Names of the properties that are compliant with the folder date range
-
-        $date_data = [ordered]@{}
-        # Date results Hash table for this folder. The key is the property name 'CreateDateExif','DateInFileName','LastWriteTime'), the value is a [PSCustomObject], one per date property name:
-        # [PSCustomObject]@{
-        #     nb_dates                  = [int32]...           # number of dates for this property (valid dates: -ne [DateTime]::MinValue ) 
-        #     nb_OutOfRange_dates       = [int32]...           # number of dates, out of the the folder date range 
-        #     nb_days_missing           = [int32]...           # Number of days missing in the property date range, to be equal to the folder's Date Range. (Only if the property date range is included in the folder date range.)
-        #     min_date                  = [DateTime]...        # earliest date (date-only, no time)
-        #     max_date                  = [DateTime]...        # latest date (date-only, no time)
-        # }
-
-        ###### COMPUTE ######
-
-        # Get some file and date data for all photo files contained in the photo folder
+        # Get date data for all photo files contained in the photo folder
         $photo_list = [ArrayList]@()
-        Get-PhotoDir_Data $photo_dir ([ref]$photo_list)  -Verbose:$false
+        Get-PhotoDir_Data $photo_dir ([ref]$photo_list) -no_recurse -Verbose:$false
         
-        # Number of phto files in this folder
+        # Number of photo files in this folder
         $nb_photos = $photo_list.Count
 
-        # Folder date range, computed from the folder name: incorrect name if ($min_date_folder -eq [DateTime]::MinValue)
-        $minmax_folder_dates = Get-DateMinMaxInFolderName $photo_dir
-        $min_date_folder = $minmax_folder_dates.Min_date
-        $max_date_folder = $minmax_folder_dates.Max_date
+        # Force result ok for the main folder without direct child photo files but with subfolders
+        if ( $is_main_folder -and ($nb_photos -eq 0) -and $global_main_has_subfolders ) {
+            $folder_result_ok = $true
+        }
+        
+        $prop_result = [ordered]@{}
+        # Date results Hash table for this folder. The key is the property name 'CreateDateExif','DateInFileName','LastWriteTime'), the value is a [PSCustomObject], one per date property name:
+        # [PSCustomObject]@{
+        #     is_prop_result_ok         = [bool]...            # Is the result ok for this prop?
+        #     nb_dates                  = [int32]...           # number of files having a valid date for this property
+        #     nb_OutOfRange_dates       = [int32]...           # number of files having a valid date but out of the the folder date range 
+        #     nb_days_missing           = [int32]...           # Number of days missing in the property date range, to be equal to the folder's Date Range. (Only if the property date range is included in the folder date range.)
+        #     min_date                  = [DateTime]...        # Minimum date limit (date-only, no time) for this property. (INCLUDED: property dates are greater than or equal to this limit.)
+        #     max_date                  = [DateTime]...        # Maximum date limit (date-only, no time) for this property. (EXCLUDED: property dates are lower than this limit.)
+        # }
 
-        # Is this folder a month range folder, i.e named like 'YYYY-MM ....'?  (for the exception to ignore $nb_days_missing)
-        $Is_Folder_YYYYMM = ( $photo_dir -match '^(.*/)(?<year>(19|20)\d\d)/\k<year>-(?<month>01|02|03|04|05|06|07|08|09|10|11|12)( .*)?$' )
 
+        # Folder date range, computed from the folder name
+        $date_range = Get_DateRange_From_Normalized_Folder_Name $photo_dir
+        $min_date_folder = $date_range.Min_date
+        $max_date_folder = $date_range.Max_date
+        $Folder_Type = $date_range.Folder_Type
 
         foreach ( $date_prop in $prop_list ) {
             
-            $is_prop_compliant = $false
+            $is_prop_result_ok = $false
             $nb_dates = -1
             $nb_OutOfRange_dates = -1
             $nb_days_missing = -1
@@ -109,55 +153,60 @@ process {
             $max_date = [DateTime]::MinValue
 
             # sorted list of the dates of this property (date-only, the time part is discarded)
-            $sorted_dates = $photo_list.$date_prop | Where-Object { ( $_ -ne [DateTime]::MinValue ) } | Sort-Object | ForEach-Object { $_.Date }
+            $sorted_dates = @( $photo_list.$date_prop | Where-Object { ( $_ -ne [DateTime]::MinValue ) } | Sort-Object | ForEach-Object { $_.Date } )
             $nb_dates = $sorted_dates.Count
 
             if ( $nb_dates -ne 0 ) {
+
                 # Dates out of folder date range
-                if ($min_date_folder -ne [DateTime]::MinValue) {
-                    $OutOfRange_date_list = $sorted_dates | Where-Object { ( $_ -lt $min_date_folder ) -or ( $_ -ge $max_date_folder ) }
+                if ($min_date_folder -eq [DateTime]::MinValue) {
+                    $nb_OutOfRange_dates = $nb_dates        # all property dates are assumed out of range because there is no folder range
+                }
+                else {
+                    $OutOfRange_date_list = @( $sorted_dates | Where-Object { ( $_ -lt $min_date_folder ) -or ( $_ -ge $max_date_folder ) } )
                     $nb_OutOfRange_dates = $OutOfRange_date_list.Count
                 }
                 
-                # Date range for this property
-                $min_date = $sorted_dates[0]
-                $max_date = $sorted_dates[-1]
+                # Date range for this property:  [ $min_date, $max_date [   <== Date only, no time. min_date in included, max_date is excluded
+                $min_date = ($sorted_dates[0]).Date     
+                $max_date = (($sorted_dates[-1]).Date).AddDays(1)
+
 
                 # Number of days missing in the property date range, to be equal to the folder's Date Range. (Only if the property date range is included in the folder date range.)
                 if ($min_date_folder -ne [DateTime]::MinValue) {
-                    if ( ($min_date_folder -ge $min_date_folder) -and ($max_date -lt $max_date_folder) ) {
-                        $nb_days_missing = ($min_date - $min_date_folder).TotalDays + ($max_date_folder.AddDays(-1) - $max_date).TotalDays
+                    if ( ($min_date -ge $min_date_folder) -and ($max_date -le $max_date_folder) ) {
+                        $nb_days_missing = ($min_date - $min_date_folder).TotalDays + ($max_date_folder - $max_date).TotalDays
                     }
                 }
-            }
 
-            # The analyse final result of the photo folder is ok ($true) for the first property meeting the following conditions:
-            # 1) All photos have this property date and all dates are within the folder date range: ( ( $nb_dates -eq $nb_photos ) -and ( $nb_OutOfRange_dates -eq 0 ) )
-            # 2) AND the date range of the property dates is the same as the folder date range: ( $nb_days_missing -eq 0 )
-            #    Exception: for a YYYY-MM folder, $nb_days_missing is ignored because these folders often contain only a few day-to-day photos, not taken from the first to the last day of the month.
-            if ( ( $nb_dates -eq $nb_photos ) -and ( $nb_OutOfRange_dates -eq 0 ) ) {
-                # Here all photos have this property date and all dates are within the folder date range: the analyse result of the folder may be ok
-                if ( $Is_Folder_YYYYMM ) {
-                    $is_prop_compliant = $true
-                    # month range folder: the date range of the photos can be smaller than the folder date range. We ignore $nb_days_missing, the folder is ok.
-                    $Result_Ok = $true
-                    $result_ok_property_list += $date_prop    # Names of the properties that are compliant with the folder date range
-                }
-                else {
-                    if ( $nb_days_missing -eq 0 ) {
-                        $is_prop_compliant = $true
-                        # the date range of the photos is the same as the folder date range, no excess days in the folder date range. The folder is ok.
-                        $Result_Ok = $true
+                # The result of the photo file analysis is ok for a property if all of the following conditions are met (AND):
+                # * All photos have this property date
+                # * All dates are within the folder date range.
+                # * For "YYYY-MM-DD(xd)" or "YYYY-MM-DD" patterns, the range of these dates must also be the same as the folder date range.
+                if ( ( $nb_dates -eq $nb_photos ) -and ( $nb_OutOfRange_dates -eq 0 ) ) {
+                    # Here all photos have this property date and all dates are within the folder date range: the analyse result of the folder may be ok
+                    if ( $Folder_Type -in ([PhotoFolderType]::DayRange, [PhotoFolderType]::Day) ) {
+                        # For "YYYY-MM-DD(xd)" or "YYYY-MM-DD" patterns, the range of these dates must also be the same as the folder date range.
+                        if ( ($min_date -eq $min_date_folder) -and ($max_date -eq $max_date_folder) ) {
+                            $is_prop_result_ok = $true
+                        }
+                    }
+                    else {
+                        # For other folder date ranges (Month...), this property result is ok
+                        $is_prop_result_ok = $true
+                    }
+                    if ($is_prop_result_ok) {
+                        $folder_result_ok = $true
                         $result_ok_property_list += $date_prop    # Names of the properties that are compliant with the folder date range
                     }
-                    # else the folder date range is too big: the folder is not ok because the date range of the photos is smaller than the folder date range
                 }
+
             }
 
 
             # Add the result custom object for the dates of this property
-            $date_data[${date_prop}] = [PSCustomObject]@{
-                is_prop_compliant         = $is_prop_compliant
+            $prop_result[${date_prop}] = [PSCustomObject]@{
+                is_prop_result_ok         = $is_prop_result_ok
                 nb_dates                  = $nb_dates
                 nb_OutOfRange_dates       = $nb_OutOfRange_dates
                 nb_days_missing           = $nb_days_missing
@@ -165,74 +214,134 @@ process {
                 max_date                  = $max_date
             }
             
-        }
+        } # for each prop
 
-
-        ###### OUTPUT RESULTS ######
-
-        # 1st line: global result for the folder
-
-        $photo_relative_dir = ($photo_dir -split '/')[-2,-1] -join '/'
-        
-        if ( $result_ok ) {
-            Write-Host "'${photo_relative_dir}': OK. " -ForegroundColor Green  -NoNewline
-            Write-Host "Compliant date properties: $($result_ok_property_list -join ', ')" -ForegroundColor DarkGreen
-        }
-        else {
-            if ( $min_date_folder -eq [datetime]::MinValue ) {
-                Write-Host "'./${photo_relative_dir}/': NOT ok. " -ForegroundColor Red  -NoNewline
-                Write-Host "Bad folder name. (No date range found in the folder name.)" -ForegroundColor DarkRed
-            }
-            else {
-                Write-Host "'${photo_relative_dir}': NOT ok. " -ForegroundColor Red  -NoNewline
-                Write-Host "No compliant date property." -ForegroundColor DarkRed
-            }
-        }
-
-        # Detailed lines: the folder global result line is followed by 1 detailed line for the folder and 1 detailed line per date property
-        
-        # Folder Detailed line
-        if ( $result_ok ) { $color = 'DarkGreen' } else { $color = 'DarkRed' }
-        Write-Host -ForegroundColor $color "  Folder$(' ' * ($max_prop_length - 'Folder'.Length + 2)) : ${nb_photos} photos. Range [$($min_date_folder.ToString('yyyy-MM-dd')), $($max_date_folder.ToString('yyyy-MM-dd'))[ ."
-
-        foreach ( $date_prop in $prop_list ) {
-
-            $is_prop_compliant        = $date_data[${date_prop}].is_prop_compliant
-            $nb_dates                 = $date_data[${date_prop}].nb_dates
-            $nb_OutOfRange_dates      = $date_data[${date_prop}].nb_OutOfRange_dates
-            $nb_days_missing          = $date_data[${date_prop}].nb_days_missing
-            $min_date                 = $date_data[${date_prop}].min_date
-            $max_date                 = $date_data[${date_prop}].max_date
-    
-            # Detail line for 1 date property
-            $line = "    ${date_prop}$(' ' * ($max_prop_length - $date_prop.Length)) : ${nb_dates} dates.  "
-            if ( ${min_date} -ne [DateTime]::MinValue ) {
-                $line += "Range [$($min_date.ToString('yyyy-MM-dd')), $($max_date.ToString('yyyy-MM-dd'))]. "
-            }
-            if ( ${nb_OutOfRange_dates} -ne -1 ) {
-                $line += "${nb_OutOfRange_dates} out of folder range. "
-            }
-            if ( ${nb_days_missing} -ne -1 ) {
-                $line += "${nb_days_missing} missing days. "
-            }
-            if ( $is_prop_compliant ) { $color = 'DarkGreen' } else { $color = 'DarkRed' }
-            Write-Host -ForegroundColor $color $line
-        }
-        
-        # update the global number of folders not ok
-        if ( -not $result_ok ) {
+        # Update the global number of folders not ok
+        if ( -not $folder_result_ok ) {
             $global_result_nb_folder_NOT_ok += 1
         }
 
-    }   # foreach ( $photo_dir ...
 
-    if ( $Is_Year_Folder ) {
-        Write-Host "============================"
-        if ( $global_result_nb_folder_NOT_ok -eq 0 ) {
-            Write-Host -ForegroundColor Green "OK: all $($photo_dir_list.Count) subfolders are ok."
+
+        ###### DISPLAY FOLDER RESULTS ######
+
+        display_normal ""
+
+    
+        # display folder name
+        if ( $is_main_folder -and ($nb_photos -eq 0) -and $global_main_has_subfolders ) {
+            # for the main folder without photo files and with subfolders, just display the full name
+            display_normal $folder_name
         }
         else {
-            Write-Host -ForegroundColor Red "NOT ok: ${global_result_nb_folder_NOT_ok} subfolders are NOT ok. (Out of $($photo_dir_list.Count))"
+            if ( $folder_result_ok ) {
+                display_ok $folder_name
+            }
+            else {
+                display_notok $folder_name
+            }
+        }
+
+        # main folder specific
+        if ( $is_main_folder ) {
+            
+            # Display a warning if the depth of the subdirectory tree if more than 1 sub-level (Typically only  "/YYYY-MM", "/YYYY-MM-dd" or "/YYYY-MM-dd(xd)" inside the given "YYYY" folder.)
+            $level_3_subdir_list = Get-ChildItem -Directory -Recurse ($main_folder_fullname + '/*/*')
+            if ( $level_3_subdir_list.Count -ge 1 ) {
+                display_warning "Warning: there are more than one level of subdirectories in the main folder. Ex: $($level_3_subdir_list[0].FullName.Substring($main_folder_fullname.Length))"
+            }
+
+            # No photos but subfolders into the main folder: do not display anything else. Next subfolder
+            if ( ($nb_photos -eq 0) -and $global_main_has_subfolders ) {
+                continue Next_subfolder
+            }
+
+            # Display a warning if there are sub-folders and some photos files not in sub-folders
+            if ( ($nb_photos -gt 0)-and $global_main_has_subfolders ) {
+                display_warning "Warning: there are photo files in the main folder that are not in subfolders. Ex: '$($level_1_subfile_list[0].FullName)'"
+            }
+        }
+        
+        # First line: general per-folder results
+        $line = "  {0,-$($max_prop_length + 2)} : {1,4} photos" -f 'Folder', $nb_photos
+        if ( $min_date_folder -ne [datetime]::MinValue ) {
+            $line += ", " + (date_range_string $min_date_folder $max_date_folder)
+        }
+        else {
+            $line += ",    - No date range -    "
+        }
+        if ( $folder_result_ok ) {
+            display_ok $line
+        }
+        else {
+            display_notok $line
+        }
+        
+        if ( $nb_photos -eq 0 ) {
+            # No photos in this subfolder: display a warning message but nothing else: Next subfolder
+            display_warning "  Warning: no photos in this folder."           
+            continue Next_subfolder
+        }
+        else {
+
+            # Next lines: Per-property results for this folder (only if not empty)
+            foreach ( $date_prop in $prop_list ) {
+
+                $is_prop_result_ok        = $prop_result[${date_prop}].is_prop_result_ok
+                $nb_dates                 = $prop_result[${date_prop}].nb_dates
+                $nb_OutOfRange_dates      = $prop_result[${date_prop}].nb_OutOfRange_dates
+                $nb_days_missing          = $prop_result[${date_prop}].nb_days_missing
+                $min_date                 = $prop_result[${date_prop}].min_date
+                $max_date                 = $prop_result[${date_prop}].max_date
+        
+                # Date range for this property
+                $line = "    {0,-$($max_prop_length)} : {1,4} dates " -f $date_prop, $nb_dates
+                if ( $min_date -ne [DateTime]::MinValue ) {
+                    $line += ", " + (date_range_string $min_date $max_date)
+                }
+                
+                if ( $min_date_folder -ne [datetime]::MinValue ) {
+                    # Nb of files which property date is out of the folder date range
+                    if ( $nb_OutOfRange_dates -gt 0 ) {
+                        $line += ", {0,4} out of folder range " -f $nb_OutOfRange_dates
+                    }
+                    else {
+                        $line += ", - All in folder range - "
+
+                        # Nb of days missing for the property date range to be equal to the folder date range (only if the property date range is included in the folder date range)
+                        if ( $nb_days_missing -gt 0 ) {
+                            $line += ", {0,4} days missing " -f $nb_days_missing
+                        }
+                        else {
+                            $line += ", Full folder range  "
+                        }
+                    }
+
+                }
+
+                # display the property line
+                if ( $is_prop_result_ok ) { 
+                    display_ok $line 
+                } 
+                else { 
+                    display_notok $line 
+                }
+
+            }
+        }
+        
+    }   # foreach ( $photo_dir ...
+
+    # End of photo_dir list
+    if ( $global_main_has_subfolders ) {
+        display_normal ""
+        display_normal "============================"
+        if ( $global_result_nb_folder_NOT_ok -eq 0 ) {
+            display_ok "OK: all $($photo_subdir_list.Count) subfolders are ok."
+        }
+        else {
+            display_notok "NOT ok: ${global_result_nb_folder_NOT_ok} / $($photo_subdir_list.Count) subfolders are NOT ok."
         }
     }
-}
+
+} # process

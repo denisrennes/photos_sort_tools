@@ -1,0 +1,9 @@
+[Nemo Action]
+Name=photodates_analysis
+Comment=Count photo exif dates per folder and subfolders
+Exec=gnome-terminal -- pwsh -NoExit -File '/home/denis/Documents/photos_sort_tools/photodates_Analysis.ps1' %F
+Icon-Name=folder-recent
+Selection=s
+Extensions=dir;
+Quote=single
+Separator=,
