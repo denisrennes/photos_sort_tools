@@ -20,7 +20,8 @@ Computed for each property CreateDateExif, DateTimeOriginal,DateInFileName and L
 The result of the photo file analysis is ok for a property if all of the following conditions are met (AND):
 * All photos have this property date
 * All dates are within the folder date range.
-* For an "YYYY-MM-DD(xd)"" pattern, the date range of these dates is the same as the folder date range.
+* For "YYYY-MM-DD(xd)" and "YYYY-MM-DD" patterns, the date range of these dates is the same as the folder date range.
+* All dates are equal (+- 1 minutes) to the reference property, which is the property having the greatest number of dates (the first property in the property list order)
 
 Throw an exception if the directory does not exist or if its name does not allow to compute its date range. 
 .NOTES
@@ -127,12 +128,14 @@ process {
         $prop_result = [ordered]@{}
         # Date results Hash table for this folder. The key is the property name 'CreateDateExif','DateInFileName','LastWriteTime'), the value is a [PSCustomObject], one per date property name:
         # [PSCustomObject]@{
-        #     is_prop_result_ok         = [bool]...            # Is the result ok for this prop?
-        #     nb_dates                  = [int32]...           # number of files having a valid date for this property
-        #     nb_OutOfRange_dates       = [int32]...           # number of files having a valid date but out of the the folder date range 
-        #     nb_days_missing           = [int32]...           # Number of days missing in the property date range, to be equal to the folder's Date Range. (Only if the property date range is included in the folder date range.)
-        #     min_date                  = [DateTime]...        # Minimum date limit (date-only, no time) for this property. (INCLUDED: property dates are greater than or equal to this limit.)
-        #     max_date                  = [DateTime]...        # Maximum date limit (date-only, no time) for this property. (EXCLUDED: property dates are lower than this limit.)
+        #     nb_dates                  = [int32]...            # number of files having a valid date for this property
+        #     nb_OutOfRange_dates       = [int32]...            # number of files having a valid date but out of the the folder date range 
+        #     nb_days_missing           = [int32]...            # Number of days missing in the property date range, to be equal to the folder's Date Range. (Only if the property date range is included in the folder date range.)
+        #     min_date                  = [DateTime]...         # Minimum date limit (date-only, no time) for this property. (INCLUDED: property dates are greater than or equal to this limit.)
+        #     max_date                  = [DateTime]...         # Maximum date limit (date-only, no time) for this property. (EXCLUDED: property dates are lower than this limit.)
+        #     is_prop_ref               = [bool]...             # Is this the reference property to compare dates between properties? (The first property having the greatest number of dates, within the folder range)
+        #     nb_dates_ne_ref           = [int32]...            # number of dates equal to the date of the reference property
+        #     is_prop_result_ok         = [bool]...             # Is the result ok for this prop?
         # }
 
 
@@ -142,9 +145,9 @@ process {
         $max_date_folder = $date_range.Max_date
         $Folder_Type = $date_range.Folder_Type
 
+        # Compute property results, step #1
         foreach ( $date_prop in $prop_list ) {
             
-            $is_prop_result_ok = $false
             $nb_dates = -1
             $nb_OutOfRange_dates = -1
             $nb_days_missing = -1
@@ -158,7 +161,7 @@ process {
             if ( $nb_dates -ne 0 ) {
 
                 # Dates out of folder date range
-                if ( $min_date_folder -eq $null ) {
+                if ( $null -eq $min_date_folder ) {
                     $nb_OutOfRange_dates = $nb_dates        # all property dates are assumed out of range because there is no folder range
                 }
                 else {
@@ -172,49 +175,111 @@ process {
 
 
                 # Number of days missing in the property date range, to be equal to the folder's Date Range. (Only if the property date range is included in the folder date range.)
-                if ( $min_date_folder ) {
+                if ( $null -ne $min_date_folder ) {
                     if ( ($min_date -ge $min_date_folder) -and ($max_date -le $max_date_folder) ) {
                         $nb_days_missing = ($min_date - $min_date_folder).TotalDays + ($max_date_folder - $max_date).TotalDays
                     }
                 }
 
-                # The result of the photo file analysis is ok for a property if all of the following conditions are met (AND):
-                # * All photos have this property date
-                # * All dates are within the folder date range.
-                # * For "YYYY-MM-DD(xd)" or "YYYY-MM-DD" patterns, the range of these dates must also be the same as the folder date range.
-                if ( ( $nb_dates -eq $nb_photos ) -and ( $nb_OutOfRange_dates -eq 0 ) ) {
-                    # Here all photos have this property date and all dates are within the folder date range: the analyse result of the folder may be ok
-                    if ( $Folder_Type -in ([PhotoFolderType]::DayRange, [PhotoFolderType]::Day) ) {
-                        # For "YYYY-MM-DD(xd)" or "YYYY-MM-DD" patterns, the range of these dates must also be the same as the folder date range.
-                        if ( ($min_date -eq $min_date_folder) -and ($max_date -eq $max_date_folder) ) {
-                            $is_prop_result_ok = $true
-                        }
-                    }
-                    else {
-                        # For other folder date ranges (Month...), this property result is ok
-                        $is_prop_result_ok = $true
-                    }
-                    if ($is_prop_result_ok) {
-                        $folder_result_ok = $true
-                        $result_ok_property_list += $date_prop    # Names of the properties that are compliant with the folder date range
-                    }
-                }
-
             }
-
 
             # Add the result custom object for the dates of this property
             $prop_result[${date_prop}] = [PSCustomObject]@{
-                is_prop_result_ok         = $is_prop_result_ok
-                nb_dates                  = $nb_dates
-                nb_OutOfRange_dates       = $nb_OutOfRange_dates
-                nb_days_missing           = $nb_days_missing
-                min_date                  = $min_date
-                max_date                  = $max_date
+                nb_dates                    = $nb_dates
+                nb_OutOfRange_dates         = $nb_OutOfRange_dates
+                nb_days_missing             = $nb_days_missing
+                min_date                    = $min_date
+                max_date                    = $max_date
+                is_prop_ref                 = $false                    # will be computed at step #2
+                nb_dates_ne_ref             = -1                        # will be computed at step #3
+                is_prop_result_ok           = $false                    # will be computed at step #4
             }
             
-        } # for each prop
+        } # property results step #1
 
+
+        # Compute property results, step #2: the reference property name, the property having the greatest number of dates within the folder range
+        $ref_date_prop = $null
+        $max_nb_date_in_folder_range = -1
+        if ( $null -ne $min_date_folder  ) {        # only for the folders having a date folder range
+            foreach ( $date_prop in $prop_list ) {
+                $nb_date_in_folder_range = $prop_result[${date_prop}].nb_dates - $prop_result[${date_prop}].nb_OutOfRange_dates
+                if ( $nb_date_in_folder_range -gt 0 ) {
+                    if ( $nb_date_in_folder_range -gt $max_nb_date_in_folder_range ) {
+                        $ref_date_prop = $date_prop          # The reference property name: The first property having the greatest number of dates within the folder range
+                        $max_nb_date_in_folder_range = $nb_date_in_folder_range
+                    }
+                }
+            }
+        }
+        if ($null -ne $ref_date_prop ) {
+            $prop_result[${ref_date_prop}].is_prop_ref = $true                                          # this is the reference property
+            $prop_result[${ref_date_prop}].nb_dates_ne_ref  = $prop_result[${ref_date_prop}].nb_dates   # all the dates of this property, even out of folder range
+        }
+
+
+        # Compute property results, step #3
+        foreach ( $date_prop in $prop_list ) {
+
+            # Nb dates of this property equal to the dates of the reference property (date difference is less than 1 minute)
+            if ( $date_prop -ne $ref_date_prop ) {
+                $prop_result[${date_prop}].nb_dates_ne_ref  = 0
+                foreach ( $photo in $photo_list ) {
+                    if ( ($null -ne $photo.$date_prop) -and ($null -ne $photo.$ref_date_prop) ) {
+                        if ( [math]::Abs( ($photo.$date_prop - $photo.$ref_date_prop).TotalMinutes ) -gt 1 ) {
+                            $prop_result[${date_prop}].nb_dates_ne_ref  += 1
+                        }
+                    }
+                }
+            }
+
+
+        
+        }
+
+        # Compute property results, step #4
+        # The result of the photo file analysis is ok for a property if all of the following conditions are met (AND):
+        # 1) All photos have this property date
+        # 2) All dates are within the folder date range
+        # 3) For "YYYY-MM-DD(xd)" and "YYYY-MM-DD" patterns, the range of these dates must also be the same as the folder date range (i.e. no missing days)
+        # 4) All dates are equal to the reference property
+            
+        foreach ( $date_prop in $prop_list ) {
+
+            $prop_result[${date_prop}].is_prop_result_ok = $false
+
+            # 1) All photos have this property date
+            if ( $prop_result[${date_prop}].nb_dates -ne $nb_photos ) {
+                continue
+            }
+
+            # 2) All dates are within the folder date range
+            if ( $prop_result[${date_prop}].nb_OutOfRange_dates -gt 0 ) {
+                continue
+            }
+
+            # 3) For "YYYY-MM-DD(xd)" and "YYYY-MM-DD" patterns, the range of these dates must also be the same as the folder date range (i.e. no missing days)
+            if ( $Folder_Type -in ([PhotoFolderType]::DayRange, [PhotoFolderType]::Day) ) {
+                if ( $prop_result[${date_prop}].nb_days_missing -gt 0 ) {
+                    continue
+                }               
+            }
+
+             # 4) All dates are equal to the reference property
+             if ( $null -ne $ref_date_prop ) {
+                if ( $prop_result[${date_prop}].nb_dates_ne_ref -ne $prop_result[${ref_date_prop}].nb_dates ) {
+                    continue
+                }
+            }
+
+            $prop_result[${date_prop}].is_prop_result_ok = $true
+            
+            # The folder result is ok if at least one property's result is ok
+            $folder_result_ok = $true
+
+        }
+
+        
         # Update the global number of folders not ok
         if ( -not $folder_result_ok ) {
             $global_result_nb_folder_NOT_ok += 1
@@ -263,7 +328,7 @@ process {
         
         # First line: general per-folder results
         $line = "  {0,-$($max_prop_length + 2)} : {1,4} photos" -f 'Folder', $nb_photos
-        if ( $min_date_folder ) {
+        if ( $null -ne $min_date_folder  ) {
             $line += ", " + (date_range_string $min_date_folder $max_date_folder)
         }
         else {
@@ -286,12 +351,15 @@ process {
             # Next lines: Per-property results for this folder (only if not empty)
             foreach ( $date_prop in $prop_list ) {
 
-                $is_prop_result_ok        = $prop_result[${date_prop}].is_prop_result_ok
                 $nb_dates                 = $prop_result[${date_prop}].nb_dates
                 $nb_OutOfRange_dates      = $prop_result[${date_prop}].nb_OutOfRange_dates
                 $nb_days_missing          = $prop_result[${date_prop}].nb_days_missing
                 $min_date                 = $prop_result[${date_prop}].min_date
                 $max_date                 = $prop_result[${date_prop}].max_date
+                $is_prop_ref              = $prop_result[${date_prop}].is_prop_ref 
+                $nb_dates_ne_ref          = $prop_result[${date_prop}].nb_dates_ne_ref 
+                $is_prop_result_ok        = $prop_result[${date_prop}].is_prop_result_ok
+
         
                 # Date range for this property
                 $line = "    {0,-$($max_prop_length)} : {1,4} dates " -f $date_prop, $nb_dates
@@ -300,19 +368,31 @@ process {
                 }
                 
                 if ( $min_date_folder ) {
+                    
                     # Nb of files which property date is out of the folder date range
                     if ( $nb_OutOfRange_dates -gt 0 ) {
                         $line += ", {0,4} out of folder range " -f $nb_OutOfRange_dates
                     }
                     else {
-                        $line += ", - All in folder range - "
+                        $line += ", ok All in folder range   "
 
                         # Nb of days missing for the property date range to be equal to the folder date range (only if the property date range is included in the folder date range)
                         if ( $nb_days_missing -gt 0 ) {
-                            $line += ", {0,4} days missing " -f $nb_days_missing
+                            $line += ", {0,4} days missing   " -f $nb_days_missing
                         }
                         else {
-                            $line += ", Full folder range  "
+                            $line += ", ok Full folder range"
+                        }
+
+                        # Nb of dates not equal to the reference property
+                        if ( $is_prop_ref ) {
+                            $line += ",      >> Ref <<     "
+                        }
+                        elseif ( $nb_dates_ne_ref  -gt 1 ) {
+                            $line += ", {0,4} dates -ne Ref " -f $nb_dates_ne_ref
+                        }
+                        elseif ( $nb_dates_ne_ref  -eq 0 ) {
+                            $line += ", ok All equal to Ref"
                         }
                     }
 
