@@ -134,7 +134,7 @@ process {
         #     min_date                  = [DateTime]...         # Minimum date limit (date-only, no time) for this property. (INCLUDED: property dates are greater than or equal to this limit.)
         #     max_date                  = [DateTime]...         # Maximum date limit (date-only, no time) for this property. (EXCLUDED: property dates are lower than this limit.)
         #     is_prop_ref               = [bool]...             # Is this the reference property to compare dates between properties? (The first property having the greatest number of dates, within the folder range)
-        #     nb_dates_ne_ref           = [int32]...            # number of dates equal to the date of the reference property
+        #     nb_dates_eq_ref           = [int32]...            # number of dates equal to the date of the reference property
         #     is_prop_result_ok         = [bool]...             # Is the result ok for this prop?
         # }
 
@@ -191,7 +191,7 @@ process {
                 min_date                    = $min_date
                 max_date                    = $max_date
                 is_prop_ref                 = $false                    # will be computed at step #2
-                nb_dates_ne_ref             = -1                        # will be computed at step #3
+                nb_dates_eq_ref             = -1                        # will be computed at step #3
                 is_prop_result_ok           = $false                    # will be computed at step #4
             }
             
@@ -214,7 +214,7 @@ process {
         }
         if ($null -ne $ref_date_prop ) {
             $prop_result[${ref_date_prop}].is_prop_ref = $true                                          # this is the reference property
-            $prop_result[${ref_date_prop}].nb_dates_ne_ref  = $prop_result[${ref_date_prop}].nb_dates   # all the dates of this property, even out of folder range
+            $prop_result[${ref_date_prop}].nb_dates_eq_ref  = $prop_result[${ref_date_prop}].nb_dates   # all the dates of this property, even out of folder range
         }
 
 
@@ -223,11 +223,11 @@ process {
 
             # Nb dates of this property equal to the dates of the reference property (date difference is less than 1 minute)
             if ( $date_prop -ne $ref_date_prop ) {
-                $prop_result[${date_prop}].nb_dates_ne_ref  = 0
+                $prop_result[${date_prop}].nb_dates_eq_ref  = 0
                 foreach ( $photo in $photo_list ) {
                     if ( ($null -ne $photo.$date_prop) -and ($null -ne $photo.$ref_date_prop) ) {
-                        if ( [math]::Abs( ($photo.$date_prop - $photo.$ref_date_prop).TotalMinutes ) -gt 1 ) {
-                            $prop_result[${date_prop}].nb_dates_ne_ref  += 1
+                        if ( [math]::Abs( ($photo.$date_prop - $photo.$ref_date_prop).TotalMinutes ) -lt 1 ) {
+                            $prop_result[${date_prop}].nb_dates_eq_ref  += 1
                         }
                     }
                 }
@@ -267,7 +267,7 @@ process {
 
              # 4) All dates are equal to the reference property
              if ( $null -ne $ref_date_prop ) {
-                if ( $prop_result[${date_prop}].nb_dates_ne_ref -ne $prop_result[${ref_date_prop}].nb_dates ) {
+                if ( $prop_result[${date_prop}].nb_dates_eq_ref -ne $prop_result[${date_prop}].nb_dates ) {
                     continue
                 }
             }
@@ -357,7 +357,7 @@ process {
                 $min_date                 = $prop_result[${date_prop}].min_date
                 $max_date                 = $prop_result[${date_prop}].max_date
                 $is_prop_ref              = $prop_result[${date_prop}].is_prop_ref 
-                $nb_dates_ne_ref          = $prop_result[${date_prop}].nb_dates_ne_ref 
+                $nb_dates_eq_ref          = $prop_result[${date_prop}].nb_dates_eq_ref 
                 $is_prop_result_ok        = $prop_result[${date_prop}].is_prop_result_ok
 
         
@@ -371,28 +371,28 @@ process {
                     
                     # Nb of files which property date is out of the folder date range
                     if ( $nb_OutOfRange_dates -gt 0 ) {
-                        $line += ", {0,4} out of folder range " -f $nb_OutOfRange_dates
+                        $line += ", {0,4} out of folder range" -f $nb_OutOfRange_dates
                     }
                     else {
-                        $line += ", ok All in folder range   "
+                        $line += ", All in folder range     "
 
                         # Nb of days missing for the property date range to be equal to the folder date range (only if the property date range is included in the folder date range)
                         if ( $nb_days_missing -gt 0 ) {
-                            $line += ", {0,4} days missing   " -f $nb_days_missing
+                            $line += ", {0,4} days missing" -f $nb_days_missing
                         }
                         else {
-                            $line += ", ok Full folder range"
+                            $line += ", Full folder range"
                         }
 
                         # Nb of dates not equal to the reference property
                         if ( $is_prop_ref ) {
-                            $line += ",      >> Ref <<     "
+                            $line += ",     >> Ref <<    "
                         }
-                        elseif ( $nb_dates_ne_ref  -gt 1 ) {
-                            $line += ", {0,4} dates -ne Ref " -f $nb_dates_ne_ref
+                        elseif ( $nb_dates_eq_ref -eq $prop_result[${ref_date_prop}].nb_dates ) {
+                            $line += ", Identical to Ref"
                         }
-                        elseif ( $nb_dates_ne_ref  -eq 0 ) {
-                            $line += ", ok All equal to Ref"
+                        elseif ( $nb_dates_eq_ref -ge 0 ) {
+                                $line += ", {0,4} dates = Ref" -f $nb_dates_eq_ref
                         }
                     }
 
