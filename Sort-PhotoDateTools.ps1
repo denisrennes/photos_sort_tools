@@ -89,8 +89,13 @@ $EXIFTOOL_WRITABLE_EXTENSION_LIST = ('.360','.3g2','.3gp','.aax','.ai','.arq','.
 # Defaut date format for ExifTool
 $DEFAULT_DATE_FORMAT_EXIFTOOL = '%Y-%m-%d %H:%M:%S'
 
-# Defaut date format for Powershell [DateTime] conversion
+# Defaut date format for Powershell [DateTime] conversion to/from ExitTool
 $DEFAULT_DATE_FORMAT_PWSH = 'yyyy-MM-dd HH:mm:ss'
+
+# Powershell date-normalized file name format
+$DATE_NORMALIZED_FILENAME_FORMAT_PWSH = 'yyyy-MM-dd_HH-mm-ss'
+$DATE_NORMALIZED_FILENAME_FORMAT_PWSH_LEN = 19      # There could be escape characters into the format, so we do not use .Length
+
 
 function IsWritableByExifTool {
 <#
@@ -144,7 +149,7 @@ Supported dates have a 4 digits year '19xx' or '20xx' (So noMiddle Ages dates or
 
 Supported file base name examples: '2015-07-06 18:21:32','IMG_20150706_182132_1','PIC_20150706_001', etc.
 
-Return $null if no date and time could be retrieved into the file name.
+Return $null if no date and time could be retrieved from the file name.
 .NOTES
 The file existence is not verified.
 .EXAMPLE
@@ -195,6 +200,69 @@ Set $photo_list with the list of custom objects from the files into ~/Documents/
     }
 }  
 Write-Verbose "ok, Get_DateInFileName is available."
+
+
+function Is_DateNormalized_FileName {
+<#
+.SYNOPSIS
+Is a file name a date-normalized file name?
+.DESCRIPTION
+Returns $true if the file name is a date-normalized filename:
+
+The date-normalized filename pattern is  YYYY-MM-dd_HH-mm-ss[-n].<ext> where '-n' is an optionnal integer to avoid identical file names and '.<ext>' is the file name extension part.
+
+.NOTES
+The file existence is not verified.
+.EXAMPLE
+Is_DateNormalized_FileName ~/Documents/test_photos/IMG_20150706_182132_1.jpg
+
+Return $false
+.EXAMPLE
+Is_DateNormalized_FileName ~/Documents/test_photos/2015-07-06_18-21-32.jpg
+
+Return $true
+
+#>
+[CmdletBinding()]
+    param (
+        # The literal path of the file.
+        [Parameter(Mandatory, ValueFromPipeline, Position = 0)]
+        [string]$LiteralPath
+    )
+    begin {
+    }
+    process {
+        # Get the file base name. Example 'IMG_2022-11-29 13-48-59_001'
+        $File = [System.IO.FileInfo]::new( $LiteralPath )       # The file existence is not verified here
+        $file_base_name = $File.BaseName
+
+        $file_base_name_datetime = $file_base_name.SubString(0, $DATE_NORMALIZED_FILENAME_FORMAT_PWSH_LEN)
+        
+        try { 
+            $filename_datetime = [DateTime]::ParseExact($file_base_name_datetime, $DATE_NORMALIZED_FILENAME_FORMAT_PWSH, $null)
+        
+            $result = $true
+
+            # check possible trailing '-n', an optionnal integer to avoid identical file names: only '-1', '-2', etc. are allowed 
+            if ( $file_base_name.Length -gt $file_base_name_datetime.Length ) {
+                $file_base_name_tail = $file_base_name.SubString($DATE_NORMALIZED_FILENAME_FORMAT_PWSH_LEN)
+                if ( $file_base_name_tail -notmatch '^-\d+$' ) {
+                    
+                    # the left datetime part of the filename is correct but the right part after that is not '-1' or '-2', etc., so not correct
+                    $result = $false
+                }
+            }
+        }
+        catch { 
+            $result = $false 
+        }
+
+        return $result
+    }
+}
+Write-Verbose "ok, Is_FileName_DateNormalized is available."
+
+
 
 # Type of a date-normalized folder name 
 enum PhotoFolderType {
