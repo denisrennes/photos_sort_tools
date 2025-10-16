@@ -232,13 +232,19 @@ Return $true
     begin {
     }
     process {
-        # Get the file base name. Example 'IMG_2022-11-29 13-48-59_001'
-        $File = [System.IO.FileInfo]::new( $LiteralPath )       # The file existence is not verified here
-        $file_base_name = $File.BaseName
-
-        $file_base_name_datetime = $file_base_name.SubString(0, $DATE_NORMALIZED_FILENAME_FORMAT_PWSH_LEN)
-        
+       
         try { 
+            # Get the file base name. Example 'IMG_2022-11-29 13-48-59_001'
+            $File = [System.IO.FileInfo]::new( $LiteralPath )       # The file existence is not verified here
+            $file_base_name = $File.BaseName
+
+            if ( $file_base_name.Length -lt $DATE_NORMALIZED_FILENAME_FORMAT_PWSH_LEN ) {
+                return $false   # file base name is shorter than a date-normalized file name
+            }
+
+            # left datetime part of the file base name
+            $file_base_name_datetime = $file_base_name.SubString(0, $DATE_NORMALIZED_FILENAME_FORMAT_PWSH_LEN)
+
             $filename_datetime = [DateTime]::ParseExact($file_base_name_datetime, $DATE_NORMALIZED_FILENAME_FORMAT_PWSH, $null)
         
             $result = $true

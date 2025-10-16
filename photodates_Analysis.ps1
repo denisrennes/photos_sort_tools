@@ -120,6 +120,9 @@ process {
         # Number of photo files in this folder
         $nb_photos = $photo_list.Count
 
+        # Number of date-normalized photo file names in this folder
+        $nb_datenormalized_filenames = @( $photo_list | Where-Object { Is_DateNormalized_FileName ($_.Name) } ).Count
+
         # Force result ok for the main folder without direct child photo files but with subfolders
         if ( $is_main_folder -and ($nb_photos -eq 0) -and $global_main_has_subfolders ) {
             $folder_result_ok = $true
@@ -328,14 +331,27 @@ process {
         
         # First line: general per-folder results
         $line = "  {0,-$($max_prop_length + 2)} : {1,4} photos" -f 'Folder', $nb_photos
+        
         if ( $null -ne $min_date_folder  ) {
             $line += ", " + (date_range_string $min_date_folder $max_date_folder)
         }
         else {
             $line += ",    - No date range -    "
         }
+
+        if ( $nb_datenormalized_filenames -eq $nb_photos ) {
+            $line += ", All file names are date-normalized"
+        }
+        else {
+            $line += ", {0,4} file names are not date-normalized" -f ($nb_photos - $nb_datenormalized_filenames)
+        }
+
         if ( $folder_result_ok ) {
-            display_ok $line
+            if ( $nb_datenormalized_filenames -eq $nb_photos ) {
+                display_ok $line
+            }else {
+                display_warning $line
+            }
         }
         else {
             display_notok $line
