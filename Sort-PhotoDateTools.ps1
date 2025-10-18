@@ -86,15 +86,25 @@ Write-Verbose "ok, ExifTool version ${exiftool_version} is available in '${exift
 # List of file extensions that can be written by ExifTool
 $EXIFTOOL_WRITABLE_EXTENSION_LIST = ('.360','.3g2','.3gp','.aax','.ai','.arq','.arw','.avif','.cr2','.cr3','.crm','.crw','.cs1','.dcp','.dng','.dr4','.dvb','.eps','.erf','.exif','.exv','.f4a','.f4v','.fff','.flif','.gif','.glv','.gpr','.hdp','.heic','.heif','.icc','.iiq','.ind','.insp','.jng','.jp2','.jpeg','.jpg','.jxl','.lrv','.m4a','.m4v','.mef','.mie','.mng','.mos','.mov','.mp4','.mpo','.mqv','.mrw','.nef','.nksc','.nrw','.orf','.ori','.pbm','.pdf','.pef','.pgm','.png','.ppm','.ps','.psb','.psd','.qtif','.raf','.raw','.rw2','.rwl','.sr2','.srw','.thm','.tiff','.vrd','.wdp','.webp','.x3f','.xmp')
 
-# Defaut date format for ExifTool
-$DEFAULT_DATE_FORMAT_EXIFTOOL = '%Y-%m-%d %H:%M:%S'
+# Default date format for display, output
+$DEFAULT_DATE_FORMAT_PWSH = 'yyyy-MM-dd_HH-mm-ss'
 
-# Defaut date format for Powershell [DateTime] conversion to/from ExitTool
-$DEFAULT_DATE_FORMAT_PWSH = 'yyyy-MM-dd HH:mm:ss'
+# Set the default date format for the current Powershell session
+
+
+
+# [DateTime] format for conversion to/from ExifTool
+$DATE_FORMAT_EXIFTOOL_PWSH = 'yyyy-MM-dd_HH-mm-ss'
+# ExifTool [DateTime] format for conversion to/from Powershell
+$DATE_FORMAT_EXIFTOOL = '%Y-%m-%d_%H-%M-%S'
 
 # Powershell date-normalized file name format
 $DATE_NORMALIZED_FILENAME_FORMAT_PWSH = 'yyyy-MM-dd_HH-mm-ss'
 $DATE_NORMALIZED_FILENAME_FORMAT_PWSH_LEN = 19      # There could be escape characters into the format, so we do not use .Length
+
+# The maximum number of seconds that can differ between two dates for them to be considered identical.
+$MAX_SECONDS_IDENTICAL_DATE_DIFF = 2
+
 
 
 function IsWritableByExifTool {
@@ -201,6 +211,16 @@ Set $photo_list with the list of custom objects from the files into ~/Documents/
 }  
 Write-Verbose "ok, Get_DateInFileName is available."
 
+function are_identical_dates {
+    param(
+        $date1,
+        $date2
+    )
+    if ( ($null -eq $date1) -or ($null -eq $date2) ) {
+        return $false
+    }
+    return ( [math]::Abs( ($date1 - $date2).TotalSecondes ) -le $MAX_SECONDS_IDENTICAL_DATE_DIFF )
+}
 
 function Is_DateNormalized_FileName {
 <#
@@ -245,7 +265,7 @@ Return $true
             # left datetime part of the file base name
             $file_base_name_datetime = $file_base_name.SubString(0, $DATE_NORMALIZED_FILENAME_FORMAT_PWSH_LEN)
 
-            $filename_datetime = [DateTime]::ParseExact($file_base_name_datetime, $DATE_NORMALIZED_FILENAME_FORMAT_PWSH, $null)
+            $null = [DateTime]::ParseExact($file_base_name_datetime, $DATE_NORMALIZED_FILENAME_FORMAT_PWSH, $null)
         
             $result = $true
 
@@ -591,7 +611,7 @@ $photos_list = Import_Clixml_CalculatedData 'nostrucs'
         return $null
     }
 
-    $date_export = (Get-ChildItem -LiteralPath $importXML_file).LastWriteTime.ToSTring($DEFAULT_DATE_FORMAT_PWSH)
+    $date_export = (Get-ChildItem -LiteralPath $importXML_file).LastWriteTime.ToString($DEFAULT_DATE_FORMAT_PWSH)
     Write-Verbose "Importing from '${importXML_file}' ${date_export} ... "
     Import-Clixml $importXML_file
 }
@@ -685,7 +705,7 @@ Get_PhotoDir_Data $photo_dir ([ref]$photo_list)
         else {
             $arg_recurse = $true
         }
-        & exiftool -recurse:${arg_recurse} -s2 -d "${DEFAULT_DATE_FORMAT_EXIFTOOL}" -CreateDate -DateTimeOriginal $photo_dir  --ext json --ext html --ext db --ext jbf --ext 'db@SynoEAStream' --ext 'jpg@SynoEAStream'  --ext 'pdf@SynoEAStream' | Foreach-Object {
+        & exiftool -recurse:${arg_recurse} -s2 -d "${DATE_FORMAT_EXIFTOOL}" -CreateDate -DateTimeOriginal $photo_dir  --ext json --ext html --ext db --ext jbf --ext 'db@SynoEAStream' --ext 'jpg@SynoEAStream'  --ext 'pdf@SynoEAStream' | Foreach-Object {
 
             $line = $_
 
@@ -721,7 +741,7 @@ Get_PhotoDir_Data $photo_dir ([ref]$photo_list)
             }
             elseif ( $line -like 'CreateDate: *') {
                 try {
-                    $CreateDateExif = [dateTime]::ParseExact( $line.substring(12), ${DEFAULT_DATE_FORMAT_PWSH}, $null)
+                    $CreateDateExif = [dateTime]::ParseExact( $line.substring(12), ${DATE_FORMAT_EXIFTOOL_PWSH}, $null)
                 }
                 catch {
                     $CreateDateExif = $null
@@ -729,7 +749,7 @@ Get_PhotoDir_Data $photo_dir ([ref]$photo_list)
             }
             elseif ( $line -like 'DateTimeOriginal: *') {
                 try {
-                    $DateTimeOriginal = [dateTime]::ParseExact( $line.substring(18), ${DEFAULT_DATE_FORMAT_PWSH}, $null)
+                    $DateTimeOriginal = [dateTime]::ParseExact( $line.substring(18), ${DATE_FORMAT_EXIFTOOL_PWSH}, $null)
                 }
                 catch {
                     $DateTimeOriginal = $null

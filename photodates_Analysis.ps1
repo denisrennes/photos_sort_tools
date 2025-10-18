@@ -35,7 +35,11 @@ using namespace System.Collections.Generic
 param (
     # The directory to be analyzed
     [Parameter(Mandatory, ValueFromPipeline, Position = 0)]
-    [string]$photo_folder
+    [string]$photo_folder,
+
+    # Display the list of the photo files data for each subfolder 
+    [switch]$List_files
+
 )
 begin {
     $ErrorActionPreference = 'Stop'
@@ -79,6 +83,69 @@ begin {
         $nb_days = "{0,2}" -f (($max_date - $min_date).TotalDays)
         Return "[$($min_date.ToString('yyyy-MM-dd')), $($max_date.ToString('yyyy-MM-dd'))[ (${nb_days} days)"
     }
+
+    function date_prop_display {
+    <#
+    .SYNOPSIS
+    Output a photo date property, possibly compared to a reference date property, as a string for display purpose
+    .DESCRIPTION
+    Output a photo date property, possibly compared to a reference date property, as a string for display purpose
+
+    if $ref_date is provided then only this date is printed, fo the other date properties, the time span from the reference date is displayed.
+    #>
+    [CmdletBinding()]
+        param (
+            # Date property to convert to a string for display purpose
+            $date,
+
+            # Is this the reference property?
+            [bool]$is_ref_prop,
+
+            # Reference date property
+            $ref_date = $null
+        )
+        process {
+            if ( -not $date ) {
+                # date property is $null
+                return ''   
+            }
+
+            if ( $is_ref_prop -or (-not $ref_date) ) {
+                # If this is the reference property or if there is no reference property, output the full datetime, formatted
+                return $date.ToString($DEFAULT_DATE_FORMAT_PWSH)
+            }
+
+            # date identical to the reference date
+            if ( are_identical_dates $date $ref_date ) {
+                return '     =ref'
+            }
+
+            # There is a reference property and the date is not the reference property and they are not identical: output the datetime span from $ref_date, formatted
+            $time_span = $date - $ref_date
+            if ( $time_span -gt 0 ) {
+                ${signe} = "+"
+            }
+            else {
+                $signe = "-"
+                $time_span = -$time_span
+            }
+            if ( $time_span.TotalDays -ge 1 ) { 
+                $result = "${signe}{0,2}days{1,2}h{2,2}m{3,2}s" -f $time_span.Days,$time_span.Hours,$time_span.Minutes,$time_span.Secondes
+            }
+            elseif ( $time_span.TotalHours -ge 1 ) { 
+                $result = "          ${signe}{0,2}h{1,2}m{2,2}s" -f $time_span.Hours,$time_span.Minutes,$time_span.Secondes
+            }
+            elseif ( $time_span.TotalMinutes -ge 1) { 
+                $result = "                ${signe}{0,2}m{1,2}s" -f $time_span.Hours,$time_span.Minutes,$time_span.Secondes
+            }
+            else {
+                $result = "                      ${signe}{0,2}s" -f $time_span.Secondes
+            }
+
+        }
+
+    }
+
 }
 process {
 
@@ -229,14 +296,12 @@ process {
                 $prop_result[${date_prop}].nb_dates_eq_ref  = 0
                 foreach ( $photo in $photo_list ) {
                     if ( ($null -ne $photo.$date_prop) -and ($null -ne $photo.$ref_date_prop) ) {
-                        if ( [math]::Abs( ($photo.$date_prop - $photo.$ref_date_prop).TotalMinutes ) -lt 1 ) {
+                        if ( are_identical_dates $photo.$date_prop $photo.$ref_date_prop ) {
                             $prop_result[${date_prop}].nb_dates_eq_ref  += 1
                         }
                     }
                 }
             }
-
-
         
         }
 
@@ -422,6 +487,28 @@ process {
                     display_notok $line 
                 }
 
+            }
+
+
+            # Display the list of the photo files data for the subfolder 
+            if( $List_files ) {
+
+                if ( $ref_date_prop ) {
+                    # Sort by reference property when it is provided
+                    $sort_property = $ref_date_prop
+                }
+                else {
+                    # Sort by filename when no reference property is provided
+                    $sort_property = 'Name'
+                }
+
+                $photo_list | Sort-Object -Property $sort_property | 
+                    Select-Object   Name, 
+                                    @{ Name='CreateDateExif';   Expression={ date_prop_display $_.CreateDateExif   ($ref_date_prop -eq 'CreateDateExif')    $_.$ref_date_prop } },
+                                    @{ Name='DateTimeOriginal'; Expression={ date_prop_display $_.DateTimeOriginal ($ref_date_prop -eq 'DateTimeOriginal')  $_.$ref_date_prop } },
+                                    @{ Name='DateInFileName';   Expression={ date_prop_display $_.DateInFileName   ($ref_date_prop -eq 'DateInFileName')    $_.$ref_date_prop } },
+                                    @{ Name='LastWriteTime';    Expression={ date_prop_display $_.LastWriteTime    ($ref_date_prop -eq 'LastWriteTime')     $_.$ref_date_prop } }
+                    | Format-Table -AutoSize
             }
         }
         
