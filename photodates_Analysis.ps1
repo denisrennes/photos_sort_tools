@@ -232,8 +232,13 @@ process {
             $max_date = $null
 
             # sorted list of the dates of this property (date-only, the time part is discarded)
-            $sorted_dates = @( $photo_list.$date_prop | Sort-Object | ForEach-Object { $_.Date } )
-            $nb_dates = $sorted_dates.Count
+            if ( $photo_list.Count -eq 0 ) {
+                $nb_dates = 0
+            }
+            else {
+                $sorted_dates = @( $photo_list.$date_prop | Sort-Object | ForEach-Object { $_.Date } )
+                $nb_dates = $sorted_dates.Count
+            }
 
             if ( $nb_dates -ne 0 ) {
 
@@ -411,11 +416,13 @@ process {
             $line += ",    - No date range -    "
         }
 
-        if ( $nb_datenormalized_filenames -eq $nb_photos ) {
-            $line += ", All file names are date-normalized"
-        }
-        else {
-            $line += ", {0,4} file names are not date-normalized" -f ($nb_photos - $nb_datenormalized_filenames)
+        if ( $nb_photos -gt 0 ) {
+            if ( $nb_datenormalized_filenames -eq $nb_photos ) {
+                $line += ", All file names are date-normalized"
+            }
+            else {
+                $line += ", {0,4} file names are not date-normalized" -f ($nb_photos - $nb_datenormalized_filenames)
+            }
         }
 
         if ( $folder_result_ok ) {
