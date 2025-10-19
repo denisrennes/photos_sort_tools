@@ -20,6 +20,7 @@ using namespace System.Collections.Generic
         [switch]$Force_ExifTool_Install
     )
 
+Set-StrictMode -Version 3.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
@@ -142,6 +143,23 @@ if ( -not IsWritableByExifTool($File.Extension) ) {
 Write-Verbose "ok, IsWritableByExifTool is available."
 
 
+# RegEx captured group value in $Matches ($null if the regex captured group does not exist)
+function matches_group {
+    param(
+        [string]$group
+    )
+
+    if ( $Matches.Keys -contains $group ) {
+        return ( $Matches.$group )
+    }
+    else {
+        return $null
+    }
+
+}
+
+
+
 function Get_DateInFileName {
 <#
 .SYNOPSIS
@@ -187,8 +205,7 @@ Set $photo_list with the list of custom objects from the files into ~/Documents/
 
         if ( $file_base_name -match $date_regex ) {
             try {
-                $date_in_filename_s = $Matches.Year + '-' + $Matches.Month + '-' + $Matches.Day + ' ' + $Matches.Hour + ':' + $Matches.Minute + ':' + $Matches.Second
-                if ( ($Matches.Hour) -and ($Matches.Minute) -and ($Matches.Second) ) {
+                if ( (matches_group 'Hour') -and (matches_group 'Minute') -and (matches_group 'Second') ) {
                     $date_in_filename_s = $Matches.Year + '-' + $Matches.Month + '-' + $Matches.Day + ' ' + $Matches.Hour + ':' + $Matches.Minute + ':' + $Matches.Second
                     $date_in_filename = [DateTime]::ParseExact($date_in_filename_s, 'yyyy-MM-dd HH:mm:ss', $null)
                 }
@@ -198,7 +215,7 @@ Set $photo_list with the list of custom objects from the files into ~/Documents/
                 }
             }
             catch {
-                throw "date conversion error for '${$date_in_filename_s}' in Get_DateInFileName( '${LiteralPath}' ) "   
+                throw "date conversion error for '${date_in_filename_s}' in Get_DateInFileName( '${LiteralPath}' ) "   
             }
         }
         else {
@@ -212,14 +229,18 @@ Set $photo_list with the list of custom objects from the files into ~/Documents/
 Write-Verbose "ok, Get_DateInFileName is available."
 
 function are_identical_dates {
+    [CmdletBinding()]
     param(
         $date1,
         $date2
     )
     if ( ($null -eq $date1) -or ($null -eq $date2) ) {
-        return $false
+        $result = $false
     }
-    return ( [math]::Abs( ($date1 - $date2).TotalSecondes ) -le $MAX_SECONDS_IDENTICAL_DATE_DIFF )
+    else {
+        $result = ( [math]::Abs( ($date1 - $date2).TotalSeconds ) -le $MAX_SECONDS_IDENTICAL_DATE_DIFF )
+    }
+    return $result
 }
 
 function Is_DateNormalized_FileName {
@@ -355,8 +376,8 @@ Result:  $minmax_dates.Min_date = [DateTime]"2015-01-01 00:00:00" and $minmax_da
 
         try {
             if ( $folder_base_name -match $date_regex ) {   
-                if ( $Matches.nb_days ) {
-                    if ( -not ( ($Matches.Day) -and ($Matches.Month) -and ($Matches.Year) ) ) {
+                if ( matches_group 'nb_days' ) {
+                    if ( -not ( (matches_group 'Day') -and (matches_group 'Month') -and (matches_group 'Year') ) ) {
                         throw "Folder name not date-normalized. (xd) or (xj) is only allowed after a YYYY-MM-dd date: '${folder_base_name}'"
                     }
                     # “2025-11-29(2d) blabla”
@@ -365,19 +386,19 @@ Result:  $minmax_dates.Min_date = [DateTime]"2015-01-01 00:00:00" and $minmax_da
                     $min_date = [DateTime]($Matches.Year + '-' + $Matches.Month + '-' + $Matches.Day)  # YYYY-MM-dd 00:00:00
                     $max_date = $min_date.AddDays($nb_days)   # $nb_days after at 00:00:00 (excluded)
                 }
-                elseif ( ($Matches.Year) -and ($Matches.Month) -and ($Matches.Day) ) {
+                elseif ( (matches_group 'Year') -and (matches_group 'Month') -and (matches_group 'Day') ) {
                     # “2025-11-29 blabla”
                     $Folder_Type = [PhotoFolderType]::Day
                     $min_date = [DateTime]($Matches.Year + '-' + $Matches.Month + '-' + $Matches.Day)  # YYYY-MM-dd 00:00:00
                     $max_date = $min_date.AddDays(1)   # 1 after at 00:00:00 (excluded)
                 }
-                elseif ( ($Matches.Year) -and ($Matches.Month) ) {
+                elseif ( (matches_group 'Year') -and (matches_group 'Month') ) {
                     # “2025-11 blabla”
                     $Folder_Type = [PhotoFolderType]::Month
                     $min_date = [DateTime]($Matches.Year + '-' + $Matches.Month + '-01')    # YYYY-MM-01 00:00:00
                     $max_date = $min_date.AddMonths(1)      # the 1st of the month after, at 00:00:00 (excluded)
                 }
-                elseif ( $Matches.Year ) {
+                elseif ( matches_group 'Year' ) {
                     # YYYY
                     $Folder_Type = [PhotoFolderType]::Year
                     $min_date = [DateTime]($Matches.Year + '-01-01')        # YYYY-01-01

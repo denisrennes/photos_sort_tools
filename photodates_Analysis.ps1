@@ -42,10 +42,11 @@ param (
 
 )
 begin {
+    Set-StrictMode -Version 3.0
     $ErrorActionPreference = 'Stop'
     $ProgressPreference = 'SilentlyContinue'
 
-    if ( -not $Is_SortPhotoDateTools_Loaded ) {
+    if ( (-not (Test-Path variable:Is_SortPhotoDateTools_Loaded)) -or (-not $Is_SortPhotoDateTools_Loaded) ) {
         . (Join-Path $PSScriptRoot "Sort-PhotoDateTools.ps1") -Verbose:$false
     }
 
@@ -123,24 +124,30 @@ begin {
             # There is a reference property and the date is not the reference property and they are not identical: output the datetime span from $ref_date, formatted
             $time_span = $date - $ref_date
             if ( $time_span -gt 0 ) {
-                ${signe} = "+"
+                $signe = "+"
             }
             else {
                 $signe = "-"
                 $time_span = -$time_span
             }
             if ( $time_span.TotalDays -ge 1 ) { 
-                $result = "${signe}{0,2}days{1,2}h{2,2}m{3,2}s" -f $time_span.Days,$time_span.Hours,$time_span.Minutes,$time_span.Secondes
+                # '+ 2d 10h03m59s'
+                $result = "{0,1}{1,2}d {2,2}h{3,2}m{4,2}s" -f $signe, $time_span.Days, $time_span.Hours, $time_span.Minutes, $time_span.Seconds
             }
             elseif ( $time_span.TotalHours -ge 1 ) { 
-                $result = "          ${signe}{0,2}h{1,2}m{2,2}s" -f $time_span.Hours,$time_span.Minutes,$time_span.Secondes
+                # '   + 10h03m59s'
+                $result = "   {0,1} {1,2}h{2,2}m{3,2}s" -f $signe, $time_span.Hours, $time_span.Minutes, $time_span.Seconds
             }
             elseif ( $time_span.TotalMinutes -ge 1) { 
-                $result = "                ${signe}{0,2}m{1,2}s" -f $time_span.Hours,$time_span.Minutes,$time_span.Secondes
+                # '      + 03m59s'
+                $result = "      {0,1} {1,2}m{2,2}s" -f $signe, $time_span.Minutes, $time_span.Seconds
             }
             else {
-                $result = "                      ${signe}{0,2}s" -f $time_span.Secondes
+                # '         + 59s'
+                $result = "         {0,1} {1,2}s" -f $signe, $time_span.Seconds
             }
+            
+            return $result
 
         }
 
@@ -378,7 +385,7 @@ process {
         if ( $is_main_folder ) {
             
             # Display a warning if the depth of the subdirectory tree if more than 1 sub-level (Typically only  "/YYYY-MM", "/YYYY-MM-dd" or "/YYYY-MM-dd(xd)" inside the given "YYYY" folder.)
-            $level_3_subdir_list = Get-ChildItem -Directory -Recurse ($main_folder_fullname + '/*/*')
+            $level_3_subdir_list = @( Get-ChildItem -Directory -Recurse ($main_folder_fullname + '/*/*') )
             if ( $level_3_subdir_list.Count -ge 1 ) {
                 display_warning "Warning: there are more than one level of subdirectories in the main folder. Ex: $($level_3_subdir_list[0].FullName.Substring($main_folder_fullname.Length))"
             }
