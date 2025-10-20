@@ -103,6 +103,9 @@ $DATE_FORMAT_EXIFTOOL = '%Y-%m-%d_%H-%M-%S'
 $DATE_NORMALIZED_FILENAME_FORMAT_PWSH = 'yyyy-MM-dd_HH-mm-ss'
 $DATE_NORMALIZED_FILENAME_FORMAT_PWSH_LEN = 19      # There could be escape characters into the format, so we do not use .Length
 
+# Max suffix counter for date-normalized file name: 'yyyy-MM-dd_HH-mm-ss-99'
+$MAX_SUFFIX_DATE_NORMALIZED_FILENAME = 99
+
 # The maximum number of seconds that can differ between two dates for them to be considered identical.
 $MAX_SECONDS_IDENTICAL_DATE_DIFF = 2
 
@@ -270,8 +273,6 @@ Return $true
         [Parameter(Mandatory, ValueFromPipeline, Position = 0)]
         [string]$LiteralPath
     )
-    begin {
-    }
     process {
        
         try { 
@@ -309,6 +310,92 @@ Return $true
 }
 Write-Verbose "ok, Is_FileName_DateNormalized is available."
 
+function FileName_DateNormalize {
+<#
+.SYNOPSIS
+Rename a file with a date-normalized file name, based on a given date.
+.DESCRIPTION
+Rename a file with a date-normalized file name, based on a given date.
+
+The given date is typically the value of one of the date properties of the file: 'CreateDateExif','DateTimeOriginal','DateInFileName','LastWriteTime'
+
+The date-normalized filename pattern is  YYYY-MM-dd_HH-mm-ss[-n].<ext> 
+    '-n' is an optionnal integer to avoid identical file names in the same directory. if n -gt $MAX_SUFFIX_DATE_NORMALIZED_FILENAME then an exception is thrown.
+    '.<ext>' is the file name extension. It will be forced into lowercase if it is not already.
+
+.EXAMPLE
+FileName_DateNormalize ~/Documents/test_photos/IMG_20150706_182132_1.JPG [datetime]'2015-07-06 16:21:32'
+
+The file is renamed as '2015-07-06_16-21-32.jpg' or '2015-07-06_16-21-32-1.jpg' (-2 -3 ...) if '2015-07-06_16-21-32.jpg' already existed.
+.EXAMPLE
+To rename the file to a date-normalized format, with the date found in its name:
+
+$file_path = '/home/denis/Documents/photo_sets/test_ext/2016-01-09/IMG_20160109_111358_1.jpg'
+$date_time = Get_DateInFileName $file_path
+if ( $null -eq $date_time) { throw 'No date in file name' }
+FileName_DateNormalize $file_path $date_time
+
+The file is renamed as '2016-01-09_11-13-58.jpg' or '2016-01-09_11-13-58-1.jpg' (-2 -3 ...) if '2016-01-09_11-13-58.jpg' already existed.
+
+#>
+[CmdletBinding()]
+    param (
+        # The literal path of the file.
+        [Parameter(Mandatory)]
+        [string]$LiteralPath,
+
+        # The literal path of the file.
+        [Parameter(Mandatory)]
+        [datetime]$date_time
+
+    )
+    process {
+       
+        # Get the file object, throw an exception if it does not exist
+        $file = Get-Item $LiteralPath
+        if ( $file -isnot [System.IO.FileSystemInfo] ) {
+            throw "The file does not exist: '${LiteralPath}'"
+        }
+
+        # New left part of the file base name: the normalized date/time part
+        $new_base_name_left = $date_time.ToString($DATE_NORMALIZED_FILENAME_FORMAT_PWSH)
+        
+        # New extension of the file
+        $new_ext = $file.Extension.ToLower()
+
+        # Compute the suffix '-n' of the file base name, if required, i.e. if another file already exists with this new file name
+        For ($n = 0; $n -lt 100; $n++) {
+            $suffix = ($n -eq 0 ) ? '':('-'+$n)  # '', '-1', '-2', ...,'-99' 
+            
+            # New name of the file
+            $new_name = $new_base_name_left + $suffix + $new_ext
+            
+            # If the file name is already this new name then exit ok (return)
+            if ($file.Name -ceq $new_name ) {
+                Return
+            }
+
+            # If no other file exists with this new name, then ok the suffix -n is found
+            if ( -not (Test-Path (Join-Path $file.DirectoryName $new_name)) ) {
+                break
+            }
+        }
+        if ( $n -eq $MAX_SUFFIX_DATE_NORMALIZED_FILENAME ) {
+            throw "Too much files with the same date-normalized name. -${MAX_SUFFIX_DATE_NORMALIZED_FILENAME} is the maximum counter suffix: '${LiteralPath}'"
+        }
+
+        # Rename the file
+        try {
+            Rename-Item -NewName $new_name -LiteralPath $file.FullName -ErrorAction 'Stop'
+        }
+        catch {
+            throw "Error trying to rename '$($file.FullName)' to '${new_name}'."
+        }
+
+        return
+    }
+}
+Write-Verbose "ok, FileName_DateNormalize is available."
 
 
 # Type of a date-normalized folder name 
