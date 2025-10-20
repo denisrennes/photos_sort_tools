@@ -225,9 +225,9 @@ process {
         # Compute property results, step #1
         foreach ( $date_prop in $prop_list ) {
             
-            $nb_dates = -1
-            $nb_OutOfRange_dates = -1
-            $nb_days_missing = -1
+            $nb_dates = 0
+            $nb_OutOfRange_dates = 0
+            $nb_days_missing = 0
             $min_date = $null
             $max_date = $null
 
@@ -282,7 +282,7 @@ process {
 
         # Compute property results, step #2: the reference property name, the property having the greatest number of dates within the folder range
         $ref_date_prop = $null
-        $max_nb_date_in_folder_range = -1
+        $max_nb_date_in_folder_range = 0
         if ( $null -ne $min_date_folder  ) {        # only for the folders having a date folder range
             foreach ( $date_prop in $prop_list ) {
                 $nb_date_in_folder_range = $prop_result[${date_prop}].nb_dates - $prop_result[${date_prop}].nb_OutOfRange_dates
@@ -402,7 +402,7 @@ process {
 
             # Display a warning if there are sub-folders and some photos files not in sub-folders
             if ( ($nb_photos -gt 0)-and $global_main_has_subfolders ) {
-                display_warning "Warning: there are photo files in the main folder that are not in subfolders. Ex: '$($level_1_subfile_list[0].FullName)'"
+                display_warning "Warning: there are photo files in the main folder that are not in subfolders.)'"
             }
         }
         
@@ -462,7 +462,7 @@ process {
                     $line += ", " + (date_range_string $min_date $max_date)
                 }
                 
-                if ( $min_date_folder ) {
+                if ( ($nb_dates -ge 1) -and $min_date_folder ) {
                     
                     # Nb of files which property date is out of the folder date range
                     if ( $nb_OutOfRange_dates -gt 0 ) {
