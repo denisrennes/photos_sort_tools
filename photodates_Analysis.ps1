@@ -35,10 +35,14 @@ using namespace System.Collections.Generic
 param (
     # The directory to be analyzed
     [Parameter(Mandatory, ValueFromPipeline, Position = 0)]
-    [string]$photo_folder,
+    [string]$Photo_Folder,
 
     # Display the list of the photo files data for each subfolder 
-    [switch]$List_files
+    [switch]$List_Files,
+
+    # Reference property
+    [Parameter(Mandatory=$False)]
+    [string]$Ref_Prop = $null
 
 )
 begin {
@@ -50,8 +54,16 @@ begin {
         . (Join-Path $PSScriptRoot "Sort-PhotoDateTools.ps1") -Verbose:$false
     }
 
-    $prop_list = ('CreateDateExif','DateTimeOriginal','DateInFileName','LastWriteTime')
-    $max_prop_length = ($prop_list | Measure-Object -Maximum -Property Length).Maximum
+    # check $reg_prop argument if provided
+    if ( $Ref_Prop ) {
+        if ( $Ref_Prop -notin $PROP_LIST ) {
+            throw "Invalid -ref_prop argument, not in $($PROP_LIST -join ',')"
+        }
+    }
+
+    # greatest length of the date property names, to align some displayed text
+    $max_prop_length = ($PROP_LIST | Measure-Object -Maximum -Property Length).Maximum
+
     function display_normal {
         param (
             $message
@@ -157,9 +169,9 @@ begin {
 process {
 
     # check the folder existence
-    $main_folder = Get-Item $photo_folder
+    $main_folder = Get-Item $Photo_Folder
     if ( -not ($main_folder.PSIsContainer) ) {
-        throw "Not a folder: '${photo_folder}'"
+        throw "Not a folder: '${Photo_Folder}'"
     }
 
     # Full path of the folder
@@ -223,7 +235,7 @@ process {
         $Folder_Type = $date_range.Folder_Type
 
         # Compute property results, step #1
-        foreach ( $date_prop in $prop_list ) {
+        foreach ( $date_prop in $PROP_LIST ) {
             
             $nb_dates = 0
             $nb_OutOfRange_dates = 0
@@ -280,20 +292,28 @@ process {
         } # property results step #1
 
 
-        # Compute property results, step #2: the reference property name, the property having the greatest number of dates within the folder range
-        $ref_date_prop = $null
-        $max_nb_date_in_folder_range = 0
-        if ( $null -ne $min_date_folder  ) {        # only for the folders having a date folder range
-            foreach ( $date_prop in $prop_list ) {
-                $nb_date_in_folder_range = $prop_result[${date_prop}].nb_dates - $prop_result[${date_prop}].nb_OutOfRange_dates
-                if ( $nb_date_in_folder_range -gt 0 ) {
-                    if ( $nb_date_in_folder_range -gt $max_nb_date_in_folder_range ) {
-                        $ref_date_prop = $date_prop          # The reference property name: The first property having the greatest number of dates within the folder range
-                        $max_nb_date_in_folder_range = $nb_date_in_folder_range
+        # Reference property
+        if ( $Ref_Prop ) {
+            # the referenece property is given as argument
+            $ref_date_prop = $Ref_Prop
+        }
+        else {
+            # Compute property results, step #2: compute the reference property name, the property having the greatest number of dates within the folder range
+            $ref_date_prop = $null
+            $max_nb_date_in_folder_range = 0
+            if ( $null -ne $min_date_folder  ) {        # only for the folders having a date folder range
+                foreach ( $date_prop in $PROP_LIST ) {
+                    $nb_date_in_folder_range = $prop_result[${date_prop}].nb_dates - $prop_result[${date_prop}].nb_OutOfRange_dates
+                    if ( $nb_date_in_folder_range -gt 0 ) {
+                        if ( $nb_date_in_folder_range -gt $max_nb_date_in_folder_range ) {
+                            $ref_date_prop = $date_prop          # The reference property name: The first property having the greatest number of dates within the folder range
+                            $max_nb_date_in_folder_range = $nb_date_in_folder_range
+                        }
                     }
                 }
             }
         }
+
         if ($null -ne $ref_date_prop ) {
             $prop_result[${ref_date_prop}].is_prop_ref = $true                                          # this is the reference property
             $prop_result[${ref_date_prop}].nb_dates_eq_ref  = $prop_result[${ref_date_prop}].nb_dates   # all the dates of this property, even out of folder range
@@ -301,7 +321,7 @@ process {
 
 
         # Compute property results, step #3
-        foreach ( $date_prop in $prop_list ) {
+        foreach ( $date_prop in $PROP_LIST ) {
 
             # Nb dates of this property equal to the dates of the reference property (date difference is less than 1 minute)
             if ( $date_prop -ne $ref_date_prop ) {
@@ -324,7 +344,7 @@ process {
         # 3) For "YYYY-MM-DD(xd)" and "YYYY-MM-DD" patterns, the range of these dates must also be the same as the folder date range (i.e. no missing days)
         # 4) All dates are equal to the reference property
             
-        foreach ( $date_prop in $prop_list ) {
+        foreach ( $date_prop in $PROP_LIST ) {
 
             $prop_result[${date_prop}].is_prop_result_ok = $false
 
@@ -444,7 +464,7 @@ process {
         else {
 
             # Next lines: Per-property results for this folder (only if not empty)
-            foreach ( $date_prop in $prop_list ) {
+            foreach ( $date_prop in $PROP_LIST ) {
 
                 $nb_dates                 = $prop_result[${date_prop}].nb_dates
                 $nb_OutOfRange_dates      = $prop_result[${date_prop}].nb_OutOfRange_dates
@@ -505,7 +525,7 @@ process {
 
 
             # Display the list of the photo files data for the subfolder 
-            if( $List_files ) {
+            if( $List_Files ) {
 
                 if ( $ref_date_prop ) {
                     # Sort by reference property when it is provided
@@ -530,6 +550,8 @@ process {
 
     # End of photo_dir list
     if ( $global_main_has_subfolders ) {
+        
+        # Some subfolders: display a global result
         display_normal ""
         display_normal "============================"
         if ( $global_result_nb_folder_NOT_ok -eq 0 ) {
@@ -538,6 +560,29 @@ process {
         else {
             display_notok "NOT ok: ${global_result_nb_folder_NOT_ok} / $($photo_subdir_list.Count) subfolders are NOT ok."
         }
+
+    }
+    else {
+
+        # -List_Files and it is the main folder and it does not have subfolders and there is a reference property without out-of-range dates and files are not all date-normalized already
+        if ( $List_Files -and $is_main_folder -and (-not $global_main_has_subfolders) -and $ref_date_prop -and ($prop_result[${ref_date_prop}].nb_OutOfRange_dates -le 0) -and ($prop_result[${ref_date_prop}].nb_dates -gt $nb_datenormalized_filenames) ) {
+
+            Do {
+                Write-Host ''
+                $user_input = Read-Host "Do you want to rename files with date-normalized format '${DATE_NORMALIZED_FILENAME_FORMAT_PWSH}', using the property '${ref_date_prop}'?"
+                $user_input = $user_input.ToUpper().Trim()
+            }
+            until ( $user_input -in ('Y','N') )
+
+            if ( $user_input -eq 'Y' ) {
+
+                # Rename files to the date-normalized format for all files having a date for the reference property
+                $photo_list | Where-Object { $_.$ref_date_prop } | ForEach-Object { $new_name = FileName_DateNormalize $_.FullName $_.$ref_date_prop; if ($new_name) {"$($_.Name) ==> ${new_name}"} else {"$($_.Name) ==> ok already"} }
+
+            }
+
+        }
+
     }
 
 } # process

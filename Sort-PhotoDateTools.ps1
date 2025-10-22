@@ -34,6 +34,10 @@ if ( -not $isDotSourced ) {
     throw "${this_script_name} must be dot-sourced (i.e. should be called with '.  <script_path>')"
 }
 
+# List of date property names considered by photo sorting tools
+$PROP_LIST = @('CreateDateExif','DateTimeOriginal','DateInFileName','LastWriteTime')
+
+
 # ExifTool access via $env:PATH (install exitool with git clone if necessary)
 $exiftool_path = Join-Path $Env:HOME '/bin/exiftool'
 $exiftool = Join-Path $exiftool_path 'exiftool'
@@ -253,18 +257,24 @@ Is a file name a date-normalized file name?
 .DESCRIPTION
 Returns $true if the file name is a date-normalized filename:
 
-The date-normalized filename pattern is  YYYY-MM-dd_HH-mm-ss[-n].<ext> where '-n' is an optionnal integer to avoid identical file names and '.<ext>' is the file name extension part.
+The date-normalized filename pattern is  YYYY-MM-dd_HH-mm-ss[-n].<ext> where:
+   '-n' is an optionnal integer to avoid identical file names: '-1', '-2', ... '-99' ( See the definition of ${MAX_SUFFIX_DATE_NORMALIZED_FILENAME} )
+   '.<ext>' is the file name extension, which MUST be in lowercase.
 
 .NOTES
 The file existence is not verified.
 .EXAMPLE
-Is_DateNormalized_FileName ~/Documents/test_photos/IMG_20150706_182132_1.jpg
-
-Return $false
-.EXAMPLE
 Is_DateNormalized_FileName ~/Documents/test_photos/2015-07-06_18-21-32.jpg
 
 Return $true
+.EXAMPLE
+Is_DateNormalized_FileName ~/Documents/test_photos/2015-07-06_18-21-32-100.jpg
+
+Return $false because '-100' at the end of the base name is not allowed. It should be '-1','-2', ...,'-99'.
+.EXAMPLE
+Is_DateNormalized_FileName ~/Documents/test_photos/2015-07-06_18-21-32.JPG
+
+Return $false because the extension must be in lowercase.
 
 #>
 [CmdletBinding()]
@@ -275,37 +285,52 @@ Return $true
     )
     process {
        
-        try { 
-            # Get the file base name. Example 'IMG_2022-11-29 13-48-59_001'
-            $File = [System.IO.FileInfo]::new( $LiteralPath )       # The file existence is not verified here
-            $file_base_name = $File.BaseName
+        # Get the file base name. Example '2015-07-06_18-21-32-100'
+        $file = [System.IO.FileInfo]::new( $LiteralPath )       # The file existence is not verified here
+        $file_base_name = $File.BaseName
 
-            if ( $file_base_name.Length -lt $DATE_NORMALIZED_FILENAME_FORMAT_PWSH_LEN ) {
-                return $false   # file base name is shorter than a date-normalized file name
-            }
+        if ( $file_base_name.Length -lt $DATE_NORMALIZED_FILENAME_FORMAT_PWSH_LEN ) {
+            # The file base name is too short, it cannot be a date-normalized file name
+            return $false   
+        }
 
-            # left datetime part of the file base name
-            $file_base_name_datetime = $file_base_name.SubString(0, $DATE_NORMALIZED_FILENAME_FORMAT_PWSH_LEN)
+        # The left part of the file base name: should contain the date-time value
+        $file_base_name_datetime = $file_base_name.SubString(0, $DATE_NORMALIZED_FILENAME_FORMAT_PWSH_LEN)
 
+        try {
+            # Convert the left part to a [datetime], using the date-normalized file name format
             $null = [DateTime]::ParseExact($file_base_name_datetime, $DATE_NORMALIZED_FILENAME_FORMAT_PWSH, $null)
-        
-            $result = $true
+        }
+        catch {
+            # Could not convert the left part to a [datetime], using the date-normalized file name format
+            return $false
+        }
 
-            # check possible trailing '-n', an optionnal integer to avoid identical file names: only '-1', '-2', etc. are allowed 
-            if ( $file_base_name.Length -gt $file_base_name_datetime.Length ) {
-                $file_base_name_tail = $file_base_name.SubString($DATE_NORMALIZED_FILENAME_FORMAT_PWSH_LEN)
-                if ( $file_base_name_tail -notmatch '^-\d+$' ) {
+        # check possible trailing '-n', an optionnal integer to avoid identical file names: must be in '-1','-2', ...,'-99'
+        if ( $file_base_name.Length -gt $file_base_name_datetime.Length ) {
+            $file_base_name_tail = $file_base_name.SubString($DATE_NORMALIZED_FILENAME_FORMAT_PWSH_LEN)
+            
+            if ( $file_base_name_tail -match '^-(?<counter>\d+)$' ) {
+                
+                if ( ([int]($matches.counter)) -gt $MAX_SUFFIX_DATE_NORMALIZED_FILENAME ) {
                     
-                    # the left datetime part of the filename is correct but the right part after that is not '-1' or '-2', etc., so not correct
-                    $result = $false
+                    # The suffixe counter exists but it greater than 99
+                    return $false
                 }
             }
-        }
-        catch { 
-            $result = $false 
+            else {
+                # The right part, after the date-time part, does not match a correct suffix counter in '-1','-2', ... '-n'
+                return $false
+            }
         }
 
-        return $result
+        # The file extension must be in lowercase
+        $ext = $file.Extension
+        if ( $ext -cne $ext.ToLower() ) {
+            return $false
+        }
+
+        return $true
     }
 }
 Write-Verbose "ok, Is_FileName_DateNormalized is available."
@@ -323,10 +348,14 @@ The date-normalized filename pattern is  YYYY-MM-dd_HH-mm-ss[-n].<ext>
     '-n' is an optionnal integer to avoid identical file names in the same directory. if n -gt $MAX_SUFFIX_DATE_NORMALIZED_FILENAME then an exception is thrown.
     '.<ext>' is the file name extension. It will be forced into lowercase if it is not already.
 
+Return the new file name if it has beeen renamed or '' if it was already correctly named.
+
 .EXAMPLE
 FileName_DateNormalize ~/Documents/test_photos/IMG_20150706_182132_1.JPG [datetime]'2015-07-06 16:21:32'
 
 The file is renamed as '2015-07-06_16-21-32.jpg' or '2015-07-06_16-21-32-1.jpg' (-2 -3 ...) if '2015-07-06_16-21-32.jpg' already existed.
+
+The new name is returned: '2015-07-06_16-21-32.jpg' or '2015-07-06_16-21-32-1.jpg'...
 .EXAMPLE
 To rename the file to a date-normalized format, with the date found in its name:
 
@@ -337,6 +366,7 @@ FileName_DateNormalize $file_path $date_time
 
 The file is renamed as '2016-01-09_11-13-58.jpg' or '2016-01-09_11-13-58-1.jpg' (-2 -3 ...) if '2016-01-09_11-13-58.jpg' already existed.
 
+The new name is returned: '2016-01-09_11-13-58.jpg' or '2016-01-09_11-13-58-1.jpg'...
 #>
 [CmdletBinding()]
     param (
@@ -372,7 +402,7 @@ The file is renamed as '2016-01-09_11-13-58.jpg' or '2016-01-09_11-13-58-1.jpg' 
             
             # If the file name is already this new name then exit ok (return)
             if ($file.Name -ceq $new_name ) {
-                Return
+                Return ''
             }
 
             # If no other file exists with this new name, then ok the suffix -n is found
@@ -392,7 +422,7 @@ The file is renamed as '2016-01-09_11-13-58.jpg' or '2016-01-09_11-13-58-1.jpg' 
             throw "Error trying to rename '$($file.FullName)' to '${new_name}'."
         }
 
-        return
+        return $new_name
     }
 }
 Write-Verbose "ok, FileName_DateNormalize is available."
@@ -885,4 +915,4 @@ Get_PhotoDir_Data $photo_dir ([ref]$photo_list)
 Write-Verbose "ok, Get_PhotoDir_Data is available."
 
 
-$Is_SortPhotoDateTools_Loaded = $True
+$Is_SortPhotoDateTools_Loaded = $true
