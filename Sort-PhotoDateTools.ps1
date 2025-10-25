@@ -34,6 +34,8 @@ if ( -not $isDotSourced ) {
     throw "${this_script_name} must be dot-sourced (i.e. should be called with '.  <script_path>')"
 }
 
+
+
 # List of date property names considered by photo sorting tools
 $PROP_LIST = @('CreateDateExif','DateTimeOriginal','DateInFileName','LastWriteTime')
 
@@ -838,12 +840,15 @@ Get_PhotoDir_Data $photo_dir ([ref]$photo_list)
         # ExifTool command to get the file full path, CreateDate and DateTimeOriginal for every photo file of $photo_dir
         # This is 16 times much faster than using Get-ChildItem and callin ExifTool for each file
         if ( $no_recurse ) {
-            $arg_recurse = $false
+            $arg_recurse = $null
         }
         else {
-            $arg_recurse = $true
+            $arg_recurse = '-recurse'
         }
-        & exiftool -recurse:${arg_recurse} -s2 -d "${DATE_FORMAT_EXIFTOOL}" -CreateDate -DateTimeOriginal $photo_dir  --ext json --ext html --ext db --ext jbf --ext 'db@SynoEAStream' --ext 'jpg@SynoEAStream'  --ext 'pdf@SynoEAStream' | Foreach-Object {
+        $arg_exclude_ext = '--ext json --ext html --ext db --ext jbf --ext ''db@SynoEAStream'' --ext ''jpg@SynoEAStream'' --ext ''pdf@SynoEAStream'''
+        $exiftool_command = "exiftool ${arg_recurse} ${arg_exclude_ext} -s2 -d `"${DATE_FORMAT_EXIFTOOL}`" -CreateDate -DateTimeOriginal `"${photo_dir}`""
+        #& exiftool ${arg_recurse} ${arg_exclude_ext} -s2 -d "${DATE_FORMAT_EXIFTOOL}" -CreateDate -DateTimeOriginal $photo_dir | Foreach-Object {
+        & exiftool ${arg_recurse} --ext json --ext html --ext db --ext jbf --ext 'db@SynoEAStream' --ext 'jpg@SynoEAStream' --ext 'pdf@SynoEAStream' -s2 -d "${DATE_FORMAT_EXIFTOOL}" -CreateDate -DateTimeOriginal $photo_dir | Foreach-Object {
 
             $line = $_
 

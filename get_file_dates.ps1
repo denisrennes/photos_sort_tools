@@ -1,29 +1,6 @@
 <#
 .SYNOPSIS
-Analyze the dates of the photos in a folder and compare them with the folder's date range, which is calculated from its normalized name. (See function Get_DateRange_From_Normalized_Folder_Name.)
-This operation is performed for each subfolder of the given folder, if applicable.
 .DESCRIPTION
-The folder's date range is calculated from its normalized name: "YYYY-MM blabla" or "YYYY-MM-DD blabla" or "YYYY-MM-DD(xd) blabla". (See function Get_DateRange_From_Normalized_Folder_Name.)
-
-The computed results are for the folder and for the exif or file dates: CreateDateExif, DateTimeOriginal, DateInFileName and LastWriteTime. (See function Get_PhotoDir_Data.)
-
-Computed for the folder:
-* Number of photo files in this folder.
-* Date range of the folder, computed from its name: $min_date_folder (included), $max_date_folder (excluded). See function Get_DateRange_From_Normalized_Folder_Name.
-
-Computed for each property CreateDateExif, DateTimeOriginal,DateInFileName and LastWriteTime:
-* Number of photo files having a valid date for this property.
-* Number of photo files having a date out of the Folder Date Range for this property.
-* Date range for this property: [$min_date, $max_date[
-* Number of days missing in the property date range, to be equal to the folder's Date Range. (Only if the property date range is included in the folder date range.)
-
-The result of the photo file analysis is ok for a property if all of the following conditions are met (AND):
-* All photos have this property date
-* All dates are within the folder date range.
-* For "YYYY-MM-DD(xd)" and "YYYY-MM-DD" patterns, the date range of these dates is the same as the folder date range.
-* All dates are equal (+- 1 minutes) to the reference property, which is the property having the greatest number of dates (the first property in the property list order)
-
-Throw an exception if the directory does not exist or if its name does not allow to compute its date range. 
 .NOTES
 ExifTool by Phil Harvey (https://exiftool.org/) may be automatically installed and its directory put in the PATH environment variable.
 .EXAMPLE
@@ -33,16 +10,16 @@ using namespace System.Collections
 using namespace System.Collections.Generic
 [CmdletBinding()]
 param (
-    # The directory to be analyzed
+    # The files to be analyzed
     [Parameter(Mandatory, ValueFromPipeline, Position = 0)]
-    [string]$Photo_Folder,
-
-    # Display the list of the photo files data for each subfolder 
-    [switch]$List_Files,
+    [string[]]$Path_List,
 
     # Reference property
     [Parameter(Mandatory=$False)]
-    [string]$Ref_Prop = $null
+    [string]$Ref_Prop = $null,
+
+    # Split the path list using comma as separator. 
+    [switch]$Do_comma_split_pathlist
 
 )
 begin {
@@ -61,9 +38,6 @@ begin {
             throw "Invalid -ref_prop argument, not in $($PROP_LIST -join ',')"
         }
     }
-
-    # greatest length of the date property names, to align some displayed text
-    $max_prop_length = ($PROP_LIST | Measure-Object -Maximum -Property Length).Maximum
 
     function display_normal {
         param (
@@ -167,7 +141,34 @@ begin {
     }
 
 }
+
 process {
+    # Process -Path_List argument
+    if ( ($Path_List.Count -eq 1) -and $Do_comma_split_pathlist ) {
+        $Path_List = $Path_List -split ','     
+    }
+    write-host "Count: $($Path_List.Count)"
+    foreach ( $path in $Path_List ) {
+        try {
+            $file_entry = Get-Item $path
+        }
+        catch {
+            throw "Non-existent path: '${path}'"
+        }
+        if ( $file_entry -is [System.IO.DirectoryInfo] ) {
+            write-host "Directory: '${path}'"
+        }
+        elseif ( $file_entry -is [System.IO.FileInfo] ) {
+            write-host "     File: '${path}'"
+        }
+        else {
+            # Incorrect type
+            throw "Invalid path type, not a file or directory: '${path}'"
+        }
+    }
+    Exit 0
+
+
 
     # check the folder existence
     $main_folder = Get-Item $Photo_Folder
