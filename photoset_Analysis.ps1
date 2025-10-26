@@ -82,9 +82,9 @@ Write-Verbose "`$no_date_list = list of photos files without CreateTag or DateIn
 $no_date_list = $photo_list | ? { ($_.CreateDateExif -eq [DateTime]::MinValue) -and ($_.DateInFileName -eq [DateTime]::MinValue) }
 Write-Verbose "  `$no_date_list.count = $($no_date_list.count) "
 
-Write-Verbose "File Count by Extension + IsWritableByExifTool: "
+Write-Verbose "File Count by Extension + Is_Writable_By_ExifTool: "
 $extension_groups = $photo_list | Group-Object -Property Extension -NoElement | Sort-Object -Property Count -Descending
-$extension_groups | Select-Object Count,Name,@{l='ExifTool_writable';e={IsWritableByExifTool($_.Name)}} | ft -auto *
+$extension_groups | Select-Object Count,Name,@{l='ExifTool_writable';e={Is_Writable_By_ExifTool($_.Name)}} | ft -auto *
 
 #Write-Verbose "File Count by FolderName: "
 #$extension_groups = $photo_list | Group-Object -Property FolderName -NoElement

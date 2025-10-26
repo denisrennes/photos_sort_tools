@@ -29,12 +29,11 @@ $Is_SortPhotoDateTools_Loaded = $False
 $this_script_name = $MyInvocation.MyCommand.Name
 Write-Verbose "${this_script_name}: Install or verify ExifTool and define functions to help classify photo and video files."
 
+# This script must be dot-sourced called
 $isDotSourced = $MyInvocation.InvocationName -eq '.' -or $MyInvocation.Line -eq ''
 if ( -not $isDotSourced ) {
     throw "${this_script_name} must be dot-sourced (i.e. should be called with '.  <script_path>')"
 }
-
-
 
 # List of date property names considered by photo sorting tools
 $PROP_LIST = @('CreateDateExif','DateTimeOriginal','DateInFileName','LastWriteTime')
@@ -83,22 +82,24 @@ if ( -not $exiftool_version ) {
     }
     else {
         Write-Host "Error!"
-        Throw "Exiftool is not correctly installed in '${exiftool_path}'"
+        Throw "ExifTool is not correctly installed in '${exiftool_path}'"
     }
 }
 # Add ExifTool path to the environment variable PATH
 $env:PATH = ( (($env:PATH -split ':') | Where-Object { $_ -ne $exiftool_path}  ) -join ':' ) + ':' + $exiftool_path
 Write-Verbose "ok, ExifTool version ${exiftool_version} is available in '${exiftool_path}' and added to `$Env:PATH : just type '& exiftool'."
 
+
 # List of file extensions that can be written by ExifTool
 $EXIFTOOL_WRITABLE_EXTENSION_LIST = ('.360','.3g2','.3gp','.aax','.ai','.arq','.arw','.avif','.cr2','.cr3','.crm','.crw','.cs1','.dcp','.dng','.dr4','.dvb','.eps','.erf','.exif','.exv','.f4a','.f4v','.fff','.flif','.gif','.glv','.gpr','.hdp','.heic','.heif','.icc','.iiq','.ind','.insp','.jng','.jp2','.jpeg','.jpg','.jxl','.lrv','.m4a','.m4v','.mef','.mie','.mng','.mos','.mov','.mp4','.mpo','.mqv','.mrw','.nef','.nksc','.nrw','.orf','.ori','.pbm','.pdf','.pef','.pgm','.png','.ppm','.ps','.psb','.psd','.qtif','.raf','.raw','.rw2','.rwl','.sr2','.srw','.thm','.tiff','.vrd','.wdp','.webp','.x3f','.xmp')
 
+# List of file extensions to exclude from ExifTool processing (based on photos from Google TakeOuts and from a Synology NAS share)
+$EXIFTOOL_EXCLUDE_EXTENTION_LIST = ('.json','.html','.db','.jbf','.db@SynoEAStream','.jpg@SynoEAStream','.pdf@SynoEAStream')
+# Build the argument array for the '--ext' arguments of Exiftool command lines: ('--ext','.json','--ext','.html', ...) 
+$EXIFTOOL_ARGS_EXCLUDE_EXTS = ('--ext,' + ( $EXIFTOOL_EXCLUDE_EXTENTION_LIST -join ',--ext,' ) ) -split ','
+
 # Default date format for display, output
 $DEFAULT_DATE_FORMAT_PWSH = 'yyyy-MM-dd_HH-mm-ss'
-
-# Set the default date format for the current Powershell session
-
-
 
 # [DateTime] format for conversion to/from ExifTool
 $DATE_FORMAT_EXIFTOOL_PWSH = 'yyyy-MM-dd_HH-mm-ss'
@@ -114,59 +115,6 @@ $MAX_SUFFIX_DATE_NORMALIZED_FILENAME = 99
 
 # The maximum number of seconds that can differ between two dates for them to be considered identical.
 $MAX_SECONDS_IDENTICAL_DATE_DIFF = 2
-
-
-
-function IsWritableByExifTool {
-<#
-.SYNOPSIS
-Return $True if the given file extension can be written by ExifTool.
-.DESCRIPTION
-This function returns $True if the given file extension belongs to a file type that can be written by ExifTool by Phil Harvey.
-
-ExifTool by Phil Harvey can write file tags only for certain file types, generally recognized by their extension.
-
-Return $True/$False
-.NOTES
-The variable $EXIFTOOL_WRITABLE_EXTENSION_LIST must contain the list of the file extensions that ExifTool can write to.
-.EXAMPLE
-if ( -not IsWritableByExifTool($File.Extension) ) {
-    throw "This file type cannot be written by ExifTool"
-}
-#>
-[CmdletBinding()]
-    param (
-        # The file extension to check
-        [Parameter(Mandatory, ValueFromPipeline, Position = 0)]
-        [string]$Extension
-    )
-    process {
-        if ( $Extension -in $EXIFTOOL_WRITABLE_EXTENSION_LIST ) {
-            return $True
-        }
-        else {
-            return $False
-        }
-    }
-}
-Write-Verbose "ok, IsWritableByExifTool is available."
-
-
-# RegEx captured group value in $Matches ($null if the regex captured group does not exist)
-function matches_group {
-    param(
-        [string]$group
-    )
-
-    if ( $Matches.Keys -contains $group ) {
-        return ( $Matches.$group )
-    }
-    else {
-        return $null
-    }
-
-}
-
 
 
 function Get_DateInFileName {
@@ -234,23 +182,8 @@ Set $photo_list with the list of custom objects from the files into ~/Documents/
 
         return $date_in_filename
     }
-}  
-Write-Verbose "ok, Get_DateInFileName is available."
-
-function are_identical_dates {
-    [CmdletBinding()]
-    param(
-        $date1,
-        $date2
-    )
-    if ( ($null -eq $date1) -or ($null -eq $date2) ) {
-        $result = $false
-    }
-    else {
-        $result = ( [math]::Abs( ($date1 - $date2).TotalSeconds ) -le $MAX_SECONDS_IDENTICAL_DATE_DIFF )
-    }
-    return $result
 }
+
 
 function Is_DateNormalized_FileName {
 <#
@@ -335,7 +268,268 @@ Return $false because the extension must be in lowercase.
         return $true
     }
 }
-Write-Verbose "ok, Is_FileName_DateNormalized is available."
+
+
+# PhotoInfo class, to store exif date/times and/or hash code of a photo file
+Class PhotoInfo {  
+    [String]                $FullName                   # full path of the file
+    [string]                $Directory                  # directory Name
+    [string]                $Name                       # file name
+    [string]                $Extension                  # Extension of the file name
+    [bool]                  $IsNormalizedName           # Is the file name date-normalized. See function Is_DateNormalized_FileName
+    [string]                $Hash                       # Hash of the file. Optionnal: '' if the hash is not computed
+    [Nullable[DateTime]]    $CreateDateExif             # 'CreateDate exif tag if it exists, else $null
+    [Nullable[DateTime]]    $DateTimeOriginal           # 'DateTimeOriginal exif tag if it exists, else $null
+    [Nullable[DateTime]]    $DateInFileName             # The date that may appear in the file base name, else $Null. See function Get_DateInFileName
+    [Nullable[DateTime]]    $LastWriteTime              # The last write time (a.k.a. "Modified") of the file
+
+    # Constructor: only requires FullName, CreateDateExif and DateTimeOriginal. The other properties are computed by the constructor.
+    PhotoInfo( [string]$FullName, [Nullable[DateTime]]$CreateDateExif, [Nullable[DateTime]]$DateTimeOriginal, [bool]$Compute_The_Hash) { 
+        $file = Get-Item -LiteralPath $FullName -ErrorAction Stop
+        if ( $file -isnot [System.IO.FileInfo] ) { throw "Not a file: '$FullName'" }
+
+        $this.FullName                      = $file.FullName
+        $this.Directory                     = $file.Directory
+        $this.Name                          = $file.Name
+        $this.Extension                     = $file.Extension
+        $this.IsNormalizedName              = Is_DateNormalized_FileName $file.FullName
+        $this.Hash                          = if ( $Compute_The_Hash ) { (Get-FileHash $this.FullName).Hash } else { '' }
+        $this.CreateDateExif                = $CreateDateExif
+        $this.DateTimeOriginal              = $DateTimeOriginal
+        $this.DateInFileName                = Get_DateInFileName $this.FullName
+        $this.LastWriteTime                 = $file.LastWriteTime
+     }
+
+}
+
+function Convert_Exiftool_Output_to_PhotoInfo {
+<#
+.SYNOPSIS
+Parse the output lines of an Exiftool command line which reads the exif tags 'CreateDateExif' and 'DateTimeOriginal' and return [PhotoInfo] objects.
+.DESCRIPTION
+Parse the output lines of an Exiftool command line which reads the exif tags 'CreateDateExif' and 'DateTimeOriginal' and return [PhotoInfo] objects.
+
+Throw exceptions if the output file does not exist or has an incorrect content.
+.EXAMPLE
+[List[PhotoInfo]]$photo_info_list = Convert_Exiftool_Output_to_PhotoInfo $temp_exiftool_stdout_file
+#>
+[CmdletBinding()]
+    Param(
+        [Parameter(Mandatory, Position = 0)]
+        [string]$Exiftool_output_file,
+
+        # Will the hash of the files be computed and stored in the returned [PhotoInfo] objects?
+        [Parameter(Mandatory)]
+        [bool]$Compute_Hash
+    )
+
+    # Base variables to store the values parsed from the output lines of ExitTool command
+    $FullName = ''
+    $CreateDateExif = $null
+    $DateTimeOriginal = $null
+    
+    $line_number = 0
+    Get-Content $Exiftool_output_file | Foreach-Object {
+
+        $line_number += 1
+        $line = $_
+        <#  output lines example:
+        ======== /home/denis/Documents/photo_sets/nostrucs/photo/2006/2006-04 Pâque + Ilan/P1070163.JPG
+        CreateDate: 2006-04-19 19:34:23
+        DateTimeOriginal: 2006-04-19 19:34:23
+        ======== /home/denis/Documents/photo_sets/nostrucs/photo/2006/2006-04 Pâque + Ilan/P1070164.JPG
+        CreateDate: 2006-04-19 19:34:26
+        ======== /home/denis/Documents/photo_sets/nostrucs/photo/2006/2006-04 Pâque/100_1661.JPG
+        ...
+        ======== /home/denis/Documents/photo_sets/nostrucs/photo/2006/2006-04 Pâque/100_1662.JPG
+        ======== /home/denis/Documents/photo_sets/nostrucs/photo/2006/2006-04 Pâque/P1070162.JPG
+        DateTimeOriginal: 2006-04-19 19:33:52
+            1 directories scanned              # for command lines with files only, this line does not appear
+            71 image files read
+        #>
+
+        if ( $line -like '======== *') {
+            
+            # File Path line
+
+            # Output the previous file data as a [FileInfo] object
+            if ( $FullName -ne '' ) {
+                
+                # Return a new [PhotoInfo] object
+                [PhotoInfo]::New( $FullName, $CreateDateExif, $DateTimeOriginal, $Compute_Hash )
+
+                # Reset current file values of ExifTool output lines parsing
+                $FullName = ''
+                $CreateDateExif = $null
+                $DateTimeOriginal = $null
+            }
+            
+            # New file full name
+            $FullName = $line.substring(9)
+
+        }
+        elseif ( $line -like 'CreateDate: *') {
+            try {
+                $CreateDateExif = [dateTime]::ParseExact( $line.substring(12), ${DATE_FORMAT_EXIFTOOL_PWSH}, $null)
+            }
+            catch {
+                Throw "Incorrect CreateDate format returned by ExifTool: line number ${line_number} of '${Exiftool_output_file}'"
+            }
+        }
+        elseif ( $line -like 'DateTimeOriginal: *') {
+            try {
+                $DateTimeOriginal = [dateTime]::ParseExact( $line.substring(18), ${DATE_FORMAT_EXIFTOOL_PWSH}, $null)
+            }
+            catch {
+                Throw "Incorrect DateTimeOriginal format returned by ExifTool: line number ${line_number} of '${Exiftool_output_file}'"
+            }
+        }
+        else {
+            # 2 final lines: "    x directories scanned" then "   y image files read"
+            if ( ($line -notmatch '^[ ]*\d+ directories scanned$') -and ($line -notmatch '^[ ]*\d+ image files read$') ) {
+                Throw "Unexpected ExifTool output line: line number ${line_number} of '${Exiftool_output_file}'"
+            }
+            # Output the previous file data as a [FileInfo] object
+            if ( $FullName -ne '' ) {
+                
+                # Return a new [PhotoInfo] object
+                [PhotoInfo]::New( $FullName, $CreateDateExif, $DateTimeOriginal, $Compute_Hash )
+
+                # Reset current file values of ExifTool output lines parsing
+                $FullName = ''
+                $CreateDateExif = $null
+                $DateTimeOriginal = $null
+            }
+        }
+    }
+}
+
+function Get_Directory_PhotoInfo {
+<#
+.SYNOPSIS
+Get [PhotoInfo] objects for all photo files in a photo directory.
+.DESCRIPTION
+Get [PhotoInfo] objects for all photo files in a photo directory.
+.NOTES
+PREREQUISITE: 
+ExifTool by Phil Harvey (https://exiftool.org/) must be installed and its directory must be in the PATH environment variable.
+.EXAMPLE
+[List[PhotoInfo]]$photo_info_list = @( Get_Directory_PhotoInfo $photo_dir -Recurse:$false -Compute_Hash:$false )
+$photo_info_list.Count
+#>
+[CmdletBinding()]
+    param(
+        # The directory to scan, where are the photo files
+        [Parameter(Mandatory, Position = 0)]
+        [string]$Directory_FullName,
+
+        # Process the subdirectories
+        [Parameter(Mandatory)]
+        [bool]$Recurse,
+        
+        # Compute the hash of the files
+        [Parameter(Mandatory)]
+        [bool]$Compute_Hash
+    )
+            
+    # Check the photo directory
+    $dir = Get-Item $Directory_FullName
+    if ( $dir -isnot [System.IO.DirectoryInfo] ) {
+        throw "Bad Directory_FullName argument for Get_Directory_PhotoInfo(): not a directory."
+    }
+    $Directory_FullName = $dir.FullName
+    Write-Verbose "Getting photo files data from '${Directory_FullName}'..."
+
+
+    # ExifTool command to get the file full path, CreateDate and DateTimeOriginal exif date/time for every photo file
+    # This is 16 times much faster than using Get-ChildItem and callin ExifTool for each file
+    if ( $Recurse ) {
+        $exiftool_arg_list = @( '-recurse' )
+    }
+    else {
+        $exiftool_arg_list = @( )
+    }
+    $exiftool_arg_list += ${EXIFTOOL_ARGS_EXCLUDE_EXTS} + '-s2' + '-d' + ${DATE_FORMAT_EXIFTOOL} + '-CreateDate' + '-DateTimeOriginal' + ${Directory_FullName}
+    $temp_exiftool_stdout_file = New-TemporaryFile
+    $temp_exiftool_stderr_file = New-TemporaryFile
+    & exiftool $exiftool_arg_list 1>$temp_exiftool_stdout_file 2>$temp_exiftool_stderr_file
+    $exit_code = $LASTEXITCODE
+    If ( $exit_code -ne 0 ) {
+        Throw "Get_Directory_PhotoInfo: ExifTool command failed with a non-zero exit code ${exit_code}. See error file ${temp_stderr_file}"
+    }
+    #Remove-item $temp_stderr_file
+
+    # Parse the output lines of an Exiftool command line which read the exif tags 'CreateDateExif' and 'DateTimeOriginal' and return [PhotoInfo] objects.
+    Convert_Exiftool_Output_to_PhotoInfo $temp_exiftool_stdout_file -Compute_Hash:${Compute_Hash}
+
+}
+
+function Is_Writable_By_ExifTool {
+<#
+.SYNOPSIS
+Return $True if the given file extension can be written by ExifTool.
+.DESCRIPTION
+This function returns $True if the given file extension belongs to a file type that can be written by ExifTool by Phil Harvey.
+
+ExifTool by Phil Harvey can write file tags only for certain file types, generally recognized by their extension.
+
+Return $True/$False
+.NOTES
+The variable $EXIFTOOL_WRITABLE_EXTENSION_LIST must contain the list of the file extensions that ExifTool can write to.
+.EXAMPLE
+if ( -not Is_Writable_By_ExifTool($File.Extension) ) {
+    throw "This file type cannot be written by ExifTool"
+}
+#>
+[CmdletBinding()]
+    param (
+        # The file extension to check
+        [Parameter(Mandatory, ValueFromPipeline, Position = 0)]
+        [string]$Extension
+    )
+    process {
+        if ( $Extension -in $EXIFTOOL_WRITABLE_EXTENSION_LIST ) {
+            return $True
+        }
+        else {
+            return $False
+        }
+    }
+}
+
+
+# RegEx captured group value in $Matches ($null if the regex captured group does not exist)
+function matches_group {
+    param(
+        [string]$group
+    )
+
+    if ( $Matches.Keys -contains $group ) {
+        return ( $Matches.$group )
+    }
+    else {
+        return $null
+    }
+
+}
+
+
+function are_identical_dates {
+    [CmdletBinding()]
+    param(
+        [Nullable[datetime]]$date1,
+
+        [Nullable[datetime]]$date2
+    )
+    if ( ($null -eq $date1) -or ($null -eq $date2) ) {
+        $result = $false
+    }
+    else {
+        $result = ( [math]::Abs( ($date1 - $date2).TotalSeconds ) -le $MAX_SECONDS_IDENTICAL_DATE_DIFF )
+    }
+    return $result
+}
+
 
 function FileName_DateNormalize {
 <#
@@ -427,10 +621,9 @@ The new name is returned: '2016-01-09_11-13-58.jpg' or '2016-01-09_11-13-58-1.jp
         return $new_name
     }
 }
-Write-Verbose "ok, FileName_DateNormalize is available."
 
 
-# Type of a date-normalized folder name 
+# Types of a date-normalized folder names
 enum PhotoFolderType {
     none        # not date-normalized
     Year        # “2025 blabla”
@@ -438,6 +631,7 @@ enum PhotoFolderType {
     Day         # “2025-11-29 blabla”
     DayRange    # “2025-11-29(2d) blabla”  
 }
+
 function Get_DateRange_From_Normalized_Folder_Name {
 <#
 .SYNOPSIS
@@ -466,11 +660,16 @@ The folder existence is verified.
 .EXAMPLE
 $minmax_dates = Get_DateRange_From_Normalized_Folder_Name '~/Documents/2015/2015-12 Christmas'
 
-Result:  $minmax_dates.Min_date = [DateTime]"2015-12-01 00:00:00" and $minmax_dates.Max_date = [DateTime]"2016-01-01 00:00:00" (excluded).
+Result: $minmax_dates.Min_date = [DateTime]"2015-12-01 00:00:00"
+        $minmax_dates.Max_date = [DateTime]"2016-01-01 00:00:00" (excluded)
+        $minmax_dates.Folder_Type = [PhotoFolderType]::Month
 .EXAMPLE
 $minmax_dates = Get_DateRange_From_Normalized_Folder_Name '~/Documents/2015'
 
-Result:  $minmax_dates.Min_date = [DateTime]"2015-01-01 00:00:00" and $minmax_dates.Max_date = [DateTime]"2016-01-01 00:00:00" (excluded).
+Result:  $minmax_dates.Min_date = [DateTime]"2015-01-01 00:00:00" 
+         $minmax_dates.Max_date = [DateTime]"2016-01-01 00:00:00" (excluded)
+         $minmax_dates.Folder_Type = [PhotoFolderType]::Year
+         
 #>
 [CmdletBinding()]
     param (
@@ -545,8 +744,6 @@ Result:  $minmax_dates.Min_date = [DateTime]"2015-01-01 00:00:00" and $minmax_da
             }
     }
 }  
-Write-Verbose "ok, Get_DateRange_From_Normalized_Folder_Name is available."
-
    
 
 $gci_photo_dir_ScriptBlock = { 
@@ -556,9 +753,9 @@ Param(
     )
     # .json and .html files are excluded because they are present in Google Takeout photo exports but they are not photo files.
     # *@SynoEAStream files are excluded because they are present in Synology photo shares but they are not photo files.
-    Get-ChildItem -LiteralPath $photo_dir -Recurse -File -Exclude ('*.json','*.html','*@SynoEAStream','*.db','*.jbf') | Where-Object { $_FullName -notlike '*@eaDir*' }
+    Get-ChildItem -LiteralPath $photo_dir -Recurse -File -Exclude ('*.json','*.html','*@SynoEAStream','*.db','*.jbf') | Where-Object { $_.FullName -notlike '*@eaDir*' }
 }
-Write-Verbose "ok, gci_photo_dir_ScriptBlock (ScriptBlock) is available."
+
 
 function Count_photo_dir {
 <#
@@ -588,7 +785,6 @@ $photo_dir_count = Count_photo_dir $photo_dir
         return $photo_dir_count
     }
 }
-Write-Verbose "ok, Count_photo_dir is available."
 
 
 function get_photoset_dir {
@@ -661,7 +857,6 @@ process {
     $result_dir
 }
 }
-Write-Verbose "ok, get_photoset_dir is available."
 
 
 function Export_Clixml_CalculatedData {
@@ -710,7 +905,6 @@ Export_Clixml_CalculatedData 'nostrucs' 'photo_list.xml' ([ref]$photo_list)
 
     $data_to_export.Value | Export-Clixml $exportXML_file
 }
-Write-Verbose "ok, Export_Clixml_CalculatedData is available."
 
 function Import_Clixml_CalculatedData {
 <#
@@ -755,7 +949,6 @@ $photos_list = Import_Clixml_CalculatedData 'nostrucs'
     Write-Verbose "Importing from '${importXML_file}' ${date_export} ... "
     Import-Clixml $importXML_file
 }
-Write-Verbose "ok, Import_Clixml_CalculatedData is available."
 
  
 function Get_PhotoDir_Data {
@@ -846,9 +1039,16 @@ Get_PhotoDir_Data $photo_dir ([ref]$photo_list)
             $arg_recurse = '-recurse'
         }
         $arg_exclude_ext = '--ext json --ext html --ext db --ext jbf --ext ''db@SynoEAStream'' --ext ''jpg@SynoEAStream'' --ext ''pdf@SynoEAStream'''
-        $exiftool_command = "exiftool ${arg_recurse} ${arg_exclude_ext} -s2 -d `"${DATE_FORMAT_EXIFTOOL}`" -CreateDate -DateTimeOriginal `"${photo_dir}`""
-        #& exiftool ${arg_recurse} ${arg_exclude_ext} -s2 -d "${DATE_FORMAT_EXIFTOOL}" -CreateDate -DateTimeOriginal $photo_dir | Foreach-Object {
-        & exiftool ${arg_recurse} --ext json --ext html --ext db --ext jbf --ext 'db@SynoEAStream' --ext 'jpg@SynoEAStream' --ext 'pdf@SynoEAStream' -s2 -d "${DATE_FORMAT_EXIFTOOL}" -CreateDate -DateTimeOriginal $photo_dir | Foreach-Object {
+        $exiftool_arg_list = @( ${arg_recurse} ) + (${arg_exclude_ext} -split ' ') + '-ignoreMinorErrors' + '-s2' + '-d' + ${DATE_FORMAT_EXIFTOOL} + '-CreateDate' + '-DateTimeOriginal' + ${photo_dir}
+        $temp_stdout_file = New-TemporaryFile
+        $temp_stderr_file = New-TemporaryFile
+        & exiftool $exiftool_arg_list 1>$temp_stdout_file 2>$temp_stderr_file
+        $exit_code = $LASTEXITCODE
+        If ( $exit_code -ne 0 ) {
+            Throw "Get_Photo_Dir_Data: ExifTool command failed with a non-zero exit code ${exit_code}. See error file ${temp_stderr_file}"
+        }
+        Remove-item $temp_stderr_file
+        Get-Content $temp_stdout_file | Foreach-Object {
 
             $line = $_
 
@@ -917,7 +1117,5 @@ Get_PhotoDir_Data $photo_dir ([ref]$photo_list)
         Write-Verbose "... $($result_list.Value.Count) photo files."
     }
 }
-Write-Verbose "ok, Get_PhotoDir_Data is available."
-
 
 $Is_SortPhotoDateTools_Loaded = $true

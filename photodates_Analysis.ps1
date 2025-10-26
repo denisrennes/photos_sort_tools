@@ -51,9 +51,7 @@ begin {
     $ProgressPreference = 'SilentlyContinue'
 
     # Load Sort-PhotoDateTools.ps1 (dot-sourcing call allows the 'module' to be in the same directory)
-    if ( (-not (Test-Path variable:Is_SortPhotoDateTools_Loaded)) -or (-not $Is_SortPhotoDateTools_Loaded) ) {
-        . (Join-Path $PSScriptRoot "Sort-PhotoDateTools.ps1") -Verbose:$false
-    }
+    . (Join-Path $PSScriptRoot "Sort-PhotoDateTools.ps1") -Verbose:$false
 
     # check $reg_prop argument if provided
     if ( $Ref_Prop ) {
@@ -200,15 +198,17 @@ process {
             $folder_name = $main_folder_fullname            # folder name: fullname for the main folder
         }
 
-        # Get date data for all photo files contained in the photo folder
-        $photo_list = [ArrayList]@()
-        Get_PhotoDir_Data $photo_dir ([ref]$photo_list) -no_recurse -no_hash -Verbose:$false
+        ### old ### # Get date data for all photo files contained in the photo folder
+        ### old ### Get_PhotoDir_Data $photo_dir ([ref]$photo_list) -no_recurse -no_hash -Verbose:$false
+        
+        # Get [PhotoInfo] objects for all photo files in a photo directory.
+        [List[PhotoInfo]]$photo_list = @( Get_Directory_PhotoInfo $photo_dir -Recurse:$false -Compute_Hash:$false  )
         
         # Number of photo files in this folder
         $nb_photos = $photo_list.Count
 
         # Number of date-normalized photo file names in this folder
-        $nb_datenormalized_filenames = @( $photo_list | Where-Object { Is_DateNormalized_FileName ($_.Name) } ).Count
+        $nb_datenormalized_filenames = @( $photo_list | Where-Object { $_.IsNormalizedName } ).Count
 
         # Force result ok for the main folder without direct child photo files but with subfolders
         if ( $is_main_folder -and ($nb_photos -eq 0) -and $global_main_has_subfolders ) {
@@ -560,28 +560,6 @@ process {
         }
         else {
             display_notok "NOT ok: ${global_result_nb_folder_NOT_ok} / $($photo_subdir_list.Count) subfolders are NOT ok."
-        }
-
-    }
-    else {
-
-        # -List_Files and it is the main folder and it does not have subfolders and there is a reference property without out-of-range dates and files are not all date-normalized already
-        if ( $List_Files -and $is_main_folder -and (-not $global_main_has_subfolders) -and $ref_date_prop -and ($prop_result[${ref_date_prop}].nb_OutOfRange_dates -le 0) -and ($prop_result[${ref_date_prop}].nb_dates -gt $nb_datenormalized_filenames) ) {
-
-            Do {
-                Write-Host ''
-                $user_input = Read-Host "Do you want to rename files with date-normalized format '${DATE_NORMALIZED_FILENAME_FORMAT_PWSH}', using the property '${ref_date_prop}'?"
-                $user_input = $user_input.ToUpper().Trim()
-            }
-            until ( $user_input -in ('Y','N') )
-
-            if ( $user_input -eq 'Y' ) {
-
-                # Rename files to the date-normalized format for all files having a date for the reference property
-                $photo_list | Where-Object { $_.$ref_date_prop } | ForEach-Object { $new_name = FileName_DateNormalize $_.FullName $_.$ref_date_prop; if ($new_name) {"$($_.Name) ==> ${new_name}"} else {"$($_.Name) ==> ok already"} }
-
-            }
-
         }
 
     }
