@@ -1,9 +1,0 @@
-[Nemo Action]
-Name=get_file_dates
-Comment=Get photo file exif dates
-Exec=gnome-terminal -- pwsh -NoLogo -NoExit -File '/home/denis/Documents/photos_sort_tools/get_file_dates.ps1' %F
-Icon-Name=folder-recent
-Selection=notnone
-MimeTypes=Image/*;Video/*;
-Quote=single
-Separator=,

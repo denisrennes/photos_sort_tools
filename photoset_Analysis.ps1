@@ -29,7 +29,8 @@ if ( -not $isDotSourced ) {
     throw "${this_script_name} must be dot-sourced (i.e. should be called with '.  <script_path>')"
 }
     
-if ( -not $Is_SortPhotoDateTools_Loaded ) {
+# Load Sort-PhotoDateTools.ps1 (dot-sourcing call allows the 'module' to be in the same directory)
+if ( (-not (Test-Path variable:Is_SortPhotoDateTools_Loaded)) -or (-not $Is_SortPhotoDateTools_Loaded) ) {
     . (Join-Path $PSScriptRoot "Sort-PhotoDateTools.ps1")
 }
 

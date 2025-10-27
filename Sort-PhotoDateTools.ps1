@@ -35,8 +35,14 @@ if ( -not $isDotSourced ) {
     throw "${this_script_name} must be dot-sourced (i.e. should be called with '.  <script_path>')"
 }
 
+# NewLine, platform independant
+$NL = [Environment]::NewLine
+
 # List of date property names considered by photo sorting tools
 $PROP_LIST = @('CreateDateExif','DateTimeOriginal','DateInFileName','LastWriteTime')
+# greatest length of the date property names, to align some displayed text
+$MAX_PROP_LENGTH = ($PROP_LIST | Measure-Object -Maximum -Property Length).Maximum
+
 
 
 # ExifTool access via $env:PATH (install exitool with git clone if necessary)
@@ -106,7 +112,12 @@ $DATE_FORMAT_EXIFTOOL_PWSH = 'yyyy-MM-dd_HH-mm-ss'
 # ExifTool [DateTime] format for conversion to/from Powershell
 $DATE_FORMAT_EXIFTOOL = '%Y-%m-%d_%H-%M-%S'
 
-# Powershell date-normalized file name format
+# Powershell date-normalized file name format:
+# The date-normalized filename pattern is  YYYY-MM-dd_HH-mm-ss[-n].<ext> 
+#   “YYYY-MM-dd_HH-mm-ss” is the date and time, in ISO 8601 format, accurate to the second, but with “-” and “_” as separators, in order to stay compatible with old file systems.
+#   '-n' is an optionnal integer to avoid identical file names in the same directory. 
+#        if n -gt $MAX_SUFFIX_DATE_NORMALIZED_FILENAME then an exception is thrown: too much photos having the same date/time.
+#   '.<ext>' is the file name extension. It will be forced into lowercase if it is not already.
 $DATE_NORMALIZED_FILENAME_FORMAT_PWSH = 'yyyy-MM-dd_HH-mm-ss'
 $DATE_NORMALIZED_FILENAME_FORMAT_PWSH_LEN = 19      # There could be escape characters into the format, so we do not use .Length
 
@@ -116,6 +127,125 @@ $MAX_SUFFIX_DATE_NORMALIZED_FILENAME = 99
 # The maximum number of seconds that can differ between two dates for them to be considered identical.
 $MAX_SECONDS_IDENTICAL_DATE_DIFF = 2
 
+
+# Display types: 
+enum Out {
+    normal
+    success
+    warning
+    error
+}
+
+function Out {
+    [CmdletBinding()]
+    param (
+        # Output type: basically the color to display to host
+        [Parameter(Mandatory, Position=0)]
+        [Out]$Out_Type,
+
+        # Text to output: basically to display to host with a specific color
+        [Parameter(Mandatory, Position = 1)]
+        [string]$Text,
+
+        # No new line at the end of the text display. This allows the next text to be displayed on the same line
+        [switch]$NoNewLine
+    )
+
+    switch ($Out_Type) {
+        Normal {
+            Write-Host -NoNewLine:${NoNewLine} $Text
+            break
+        }
+        success {
+            Write-Host -NoNewLine:${NoNewLine} $Text -ForegroundColor Green
+            break
+        }
+        warning {
+            Write-Host -NoNewLine:${NoNewLine} $Text -ForegroundColor DarkYellow
+            break
+        }
+        error {
+            Write-Host -NoNewLine:${NoNewLine} $Text -ForegroundColor Red
+            break
+        }
+    }
+}
+
+function date_range_tostring {
+    param (
+        [datetime]$min_date,
+        [datetime]$max_date
+    )
+    $nb_days = "{0,2}" -f (($max_date - $min_date).TotalDays)
+    Return "[$($min_date.ToString('yyyy-MM-dd')), $($max_date.ToString('yyyy-MM-dd'))[ (${nb_days} days)"
+}
+function date_diff_ref_tostring {
+<#
+.SYNOPSIS
+Output a photo date property, possibly compared to a reference date property, as a string for display purpose
+.DESCRIPTION
+Output a photo date property, possibly compared to a reference date property, as a string for display purpose
+
+if $ref_date is provided then only this date is printed, fo the other date properties, the time span from the reference date is displayed.
+#>
+[CmdletBinding()]
+    param (
+        # Date property to convert to a string for display purpose
+        $date,
+
+        # Is this the reference property?
+        [bool]$is_ref_prop,
+
+        # Reference date property
+        $ref_date = $null
+    )
+    process {
+        if ( -not $date ) {
+            # date property is $null
+            return ''   
+        }
+
+        if ( $is_ref_prop -or (-not $ref_date) ) {
+            # If this is the reference property or if there is no reference property, output the full datetime, formatted
+            return $date.ToString($DEFAULT_DATE_FORMAT_PWSH)
+        }
+
+        # date identical to the reference date
+        if ( are_identical_dates $date $ref_date ) {
+            return '     =ref'
+        }
+
+        # There is a reference property and the date is not the reference property and they are not identical: output the datetime span from $ref_date, formatted
+        $time_span = $date - $ref_date
+        if ( $time_span -gt 0 ) {
+            $signe = "+"
+        }
+        else {
+            $signe = "-"
+            $time_span = -$time_span
+        }
+        if ( $time_span.TotalDays -ge 1 ) { 
+            # '+ 2d 10h03m59s'
+            $result = "{0,1}{1,2}d {2,2}h{3,2}m{4,2}s" -f $signe, $time_span.Days, $time_span.Hours, $time_span.Minutes, $time_span.Seconds
+        }
+        elseif ( $time_span.TotalHours -ge 1 ) { 
+            # '   + 10h03m59s'
+            $result = "   {0,1} {1,2}h{2,2}m{3,2}s" -f $signe, $time_span.Hours, $time_span.Minutes, $time_span.Seconds
+        }
+        elseif ( $time_span.TotalMinutes -ge 1) { 
+            # '      + 03m59s'
+            $result = "      {0,1} {1,2}m{2,2}s" -f $signe, $time_span.Minutes, $time_span.Seconds
+        }
+        else {
+            # '         + 59s'
+            $result = "         {0,1} {1,2}s" -f $signe, $time_span.Seconds
+        }
+        
+        return $result
+
+    }
+
+}
 
 function Get_DateInFileName {
 <#
@@ -192,9 +322,11 @@ Is a file name a date-normalized file name?
 .DESCRIPTION
 Returns $true if the file name is a date-normalized filename:
 
-The date-normalized filename pattern is  YYYY-MM-dd_HH-mm-ss[-n].<ext> where:
-   '-n' is an optionnal integer to avoid identical file names: '-1', '-2', ... '-99' ( See the definition of ${MAX_SUFFIX_DATE_NORMALIZED_FILENAME} )
-   '.<ext>' is the file name extension, which MUST be in lowercase.
+The date-normalized filename pattern is  YYYY-MM-dd_HH-mm-ss[-n].<ext> 
+  “YYYY-MM-dd_HH-mm-ss” is the date and time, in ISO 8601 format, accurate to the second, but with “-” and “_” as separators, in order to stay compatible with old file systems.
+  '-n' is an optionnal integer to avoid identical file names in the same directory. 
+       if n -gt $MAX_SUFFIX_DATE_NORMALIZED_FILENAME then an exception is thrown: too much photos having the same date/time.
+  '.<ext>' is the file name extension. It will be forced into lowercase if it is not already.
 
 .NOTES
 The file existence is not verified.
@@ -266,6 +398,100 @@ Return $false because the extension must be in lowercase.
         }
 
         return $true
+    }
+}
+
+
+function Rename_DateNormalize {
+<#
+.SYNOPSIS
+Rename a file with a date-normalized file name, based on a given date.
+.DESCRIPTION
+Rename a file with a date-normalized file name, based on a given date.
+
+The given date is typically the value of one of the date properties of the file: 'CreateDateExif','DateTimeOriginal','DateInFileName','LastWriteTime'
+
+The date-normalized filename pattern is  YYYY-MM-dd_HH-mm-ss[-n].<ext> 
+  “YYYY-MM-dd_HH-mm-ss” is the date and time, in ISO 8601 format, accurate to the second, but with “-” and “_” as separators, in order to stay compatible with old file systems.
+  '-n' is an optionnal integer to avoid identical file names in the same directory. 
+       if n -gt $MAX_SUFFIX_DATE_NORMALIZED_FILENAME then an exception is thrown: too much photos having the same date/time.
+  '.<ext>' is the file name extension. It will be forced into lowercase if it is not already.
+
+Return the new file name if it has beeen renamed or '' if it was already correctly named.
+
+.EXAMPLE
+Rename_DateNormalize ~/Documents/test_photos/IMG_20150706_182132_1.JPG [datetime]'2015-07-06 16:21:32'
+
+The file is renamed as '2015-07-06_16-21-32.jpg' or '2015-07-06_16-21-32-1.jpg' (-2 -3 ...) if '2015-07-06_16-21-32.jpg' already existed.
+
+The new name is returned: '2015-07-06_16-21-32.jpg' or '2015-07-06_16-21-32-1.jpg'...
+.EXAMPLE
+To rename the file to a date-normalized format, with the date found in its name:
+
+$file_path = '/home/denis/Documents/photo_sets/test_ext/2016-01-09/IMG_20160109_111358_1.jpg'
+$date_time = Get_DateInFileName $file_path
+if ( $null -eq $date_time) { throw 'No date in file name' }
+Rename_DateNormalize $file_path $date_time
+
+The file is renamed as '2016-01-09_11-13-58.jpg' or '2016-01-09_11-13-58-1.jpg' (-2 -3 ...) if '2016-01-09_11-13-58.jpg' already existed.
+
+The new name is returned: '2016-01-09_11-13-58.jpg' or '2016-01-09_11-13-58-1.jpg'...
+#>
+[CmdletBinding()]
+    param (
+        # The literal path of the file.
+        [Parameter(Mandatory)]
+        [string]$LiteralPath,
+
+        # The literal path of the file.
+        [Parameter(Mandatory)]
+        [datetime]$date_time
+
+    )
+    process {
+       
+        # Get the file object, throw an exception if it does not exist
+        $file = Get-Item $LiteralPath
+        if ( $file -isnot [System.IO.FileSystemInfo] ) {
+            throw "The file does not exist: '${LiteralPath}'"
+        }
+
+        # New left part of the file base name: the normalized date/time part
+        $new_base_name_left = $date_time.ToString($DATE_NORMALIZED_FILENAME_FORMAT_PWSH)
+        
+        # New extension of the file
+        $new_ext = $file.Extension.ToLower()
+
+        # Compute the suffix '-n' of the file base name, if required, i.e. if another file already exists with this new file name
+        For ($n = 0; $n -lt 100; $n++) {
+            $suffix = ($n -eq 0 ) ? '':('-'+$n)  # '', '-1', '-2', ...,'-99' 
+            
+            # New name of the file
+            $new_name = $new_base_name_left + $suffix + $new_ext
+            
+            # If the file name is already this new name then exit ok (return)
+            if ($file.Name -ceq $new_name ) {
+                Return ''
+            }
+
+            # If no other file exists with this new name, then ok the suffix -n is found
+            if ( -not (Test-Path (Join-Path $file.DirectoryName $new_name)) ) {
+                break
+            }
+        }
+        if ( $n -eq $MAX_SUFFIX_DATE_NORMALIZED_FILENAME ) {
+            throw "Too much files with the same date-normalized name. -${MAX_SUFFIX_DATE_NORMALIZED_FILENAME} is the maximum counter suffix: '${LiteralPath}'"
+        }
+
+        # Rename the file
+        try {
+            Rename-Item -NewName $new_name -LiteralPath $file.FullName -ErrorAction 'Stop'
+        }
+        catch {
+            throw "Error trying to rename '$($file.FullName)' to '${new_name}'."
+        }
+
+        return $new_name
     }
 }
 
@@ -457,7 +683,58 @@ $photo_info_list.Count
     If ( $exit_code -ne 0 ) {
         Throw "Get_Directory_PhotoInfo: ExifTool command failed with a non-zero exit code ${exit_code}. See error file ${temp_stderr_file}"
     }
-    #Remove-item $temp_stderr_file
+
+    # Parse the output lines of an Exiftool command line which read the exif tags 'CreateDateExif' and 'DateTimeOriginal' and return [PhotoInfo] objects.
+    Convert_Exiftool_Output_to_PhotoInfo $temp_exiftool_stdout_file -Compute_Hash:${Compute_Hash}
+
+}
+
+function Get_Files_PhotoInfo {
+<#
+.SYNOPSIS
+Get [PhotoInfo] objects for a given list of photo files.
+.DESCRIPTION
+Get [PhotoInfo] objects for a given list of photo files.
+.NOTES
+PREREQUISITE: 
+ExifTool by Phil Harvey (https://exiftool.org/) must be installed and its directory must be in the PATH environment variable.
+.EXAMPLE
+$my_file_list = @( '/home/denis/Documents/photo_sets/nostrucs/photo/2015/2015-01/2015-01-01_13-14-50.JPG', '/home/denis/Documents/photo_sets/nostrucs/photo/2015/2015-01/2015-01-01_13-15-04.JPG' )
+[List[PhotoInfo]]$photo_info_list = @( Get_Files_PhotoInfo $my_file_list -Compute_Hash:$false )
+$photo_info_list.Count
+#>
+[CmdletBinding()]
+    param(
+        # List of the photo files FullNames
+        [Parameter(Mandatory, Position = 0)]
+        [string[]]$Photo_File_List,
+
+        # Compute the hash of the files
+        [Parameter(Mandatory)]
+        [bool]$Compute_Hash
+    )
+            
+    # All files must exist and directories are not allowed
+    [List[FileInfo]]$file_list = @( $Photo_File_List | ForEach-Object {
+        $file = Get-Item $_ -ErrorAction Stop
+        if ( $file -isnot [System.IO.FileInfo] ) {
+            throw "Incorrect Photo_File_List argument: this is not a file: '${$_}'"
+        }
+        $file
+    } )
+
+    Write-Verbose "Getting photo files data for $($files_list.Count) files..."
+
+    # ExifTool command to get the file full path, CreateDate and DateTimeOriginal exif date/time for every photo file
+    # This is 16 times much faster than call ExifTool for each file
+    $exiftool_arg_list = ${EXIFTOOL_ARGS_EXCLUDE_EXTS} + '-s2' + '-d' + ${DATE_FORMAT_EXIFTOOL} + '-CreateDate' + '-DateTimeOriginal' + $file_list.FullName
+    $temp_exiftool_stdout_file = New-TemporaryFile
+    $temp_exiftool_stderr_file = New-TemporaryFile
+    & exiftool $exiftool_arg_list 1>$temp_exiftool_stdout_file 2>$temp_exiftool_stderr_file
+    $exit_code = $LASTEXITCODE
+    If ( $exit_code -ne 0 ) {
+        Throw "Get_Files_PhotoInfo: ExifTool command failed with a non-zero exit code ${exit_code}. See error file ${temp_stderr_file}"
+    }
 
     # Parse the output lines of an Exiftool command line which read the exif tags 'CreateDateExif' and 'DateTimeOriginal' and return [PhotoInfo] objects.
     Convert_Exiftool_Output_to_PhotoInfo $temp_exiftool_stdout_file -Compute_Hash:${Compute_Hash}
@@ -528,98 +805,6 @@ function are_identical_dates {
         $result = ( [math]::Abs( ($date1 - $date2).TotalSeconds ) -le $MAX_SECONDS_IDENTICAL_DATE_DIFF )
     }
     return $result
-}
-
-
-function FileName_DateNormalize {
-<#
-.SYNOPSIS
-Rename a file with a date-normalized file name, based on a given date.
-.DESCRIPTION
-Rename a file with a date-normalized file name, based on a given date.
-
-The given date is typically the value of one of the date properties of the file: 'CreateDateExif','DateTimeOriginal','DateInFileName','LastWriteTime'
-
-The date-normalized filename pattern is  YYYY-MM-dd_HH-mm-ss[-n].<ext> 
-    '-n' is an optionnal integer to avoid identical file names in the same directory. if n -gt $MAX_SUFFIX_DATE_NORMALIZED_FILENAME then an exception is thrown.
-    '.<ext>' is the file name extension. It will be forced into lowercase if it is not already.
-
-Return the new file name if it has beeen renamed or '' if it was already correctly named.
-
-.EXAMPLE
-FileName_DateNormalize ~/Documents/test_photos/IMG_20150706_182132_1.JPG [datetime]'2015-07-06 16:21:32'
-
-The file is renamed as '2015-07-06_16-21-32.jpg' or '2015-07-06_16-21-32-1.jpg' (-2 -3 ...) if '2015-07-06_16-21-32.jpg' already existed.
-
-The new name is returned: '2015-07-06_16-21-32.jpg' or '2015-07-06_16-21-32-1.jpg'...
-.EXAMPLE
-To rename the file to a date-normalized format, with the date found in its name:
-
-$file_path = '/home/denis/Documents/photo_sets/test_ext/2016-01-09/IMG_20160109_111358_1.jpg'
-$date_time = Get_DateInFileName $file_path
-if ( $null -eq $date_time) { throw 'No date in file name' }
-FileName_DateNormalize $file_path $date_time
-
-The file is renamed as '2016-01-09_11-13-58.jpg' or '2016-01-09_11-13-58-1.jpg' (-2 -3 ...) if '2016-01-09_11-13-58.jpg' already existed.
-
-The new name is returned: '2016-01-09_11-13-58.jpg' or '2016-01-09_11-13-58-1.jpg'...
-#>
-[CmdletBinding()]
-    param (
-        # The literal path of the file.
-        [Parameter(Mandatory)]
-        [string]$LiteralPath,
-
-        # The literal path of the file.
-        [Parameter(Mandatory)]
-        [datetime]$date_time
-
-    )
-    process {
-       
-        # Get the file object, throw an exception if it does not exist
-        $file = Get-Item $LiteralPath
-        if ( $file -isnot [System.IO.FileSystemInfo] ) {
-            throw "The file does not exist: '${LiteralPath}'"
-        }
-
-        # New left part of the file base name: the normalized date/time part
-        $new_base_name_left = $date_time.ToString($DATE_NORMALIZED_FILENAME_FORMAT_PWSH)
-        
-        # New extension of the file
-        $new_ext = $file.Extension.ToLower()
-
-        # Compute the suffix '-n' of the file base name, if required, i.e. if another file already exists with this new file name
-        For ($n = 0; $n -lt 100; $n++) {
-            $suffix = ($n -eq 0 ) ? '':('-'+$n)  # '', '-1', '-2', ...,'-99' 
-            
-            # New name of the file
-            $new_name = $new_base_name_left + $suffix + $new_ext
-            
-            # If the file name is already this new name then exit ok (return)
-            if ($file.Name -ceq $new_name ) {
-                Return ''
-            }
-
-            # If no other file exists with this new name, then ok the suffix -n is found
-            if ( -not (Test-Path (Join-Path $file.DirectoryName $new_name)) ) {
-                break
-            }
-        }
-        if ( $n -eq $MAX_SUFFIX_DATE_NORMALIZED_FILENAME ) {
-            throw "Too much files with the same date-normalized name. -${MAX_SUFFIX_DATE_NORMALIZED_FILENAME} is the maximum counter suffix: '${LiteralPath}'"
-        }
-
-        # Rename the file
-        try {
-            Rename-Item -NewName $new_name -LiteralPath $file.FullName -ErrorAction 'Stop'
-        }
-        catch {
-            throw "Error trying to rename '$($file.FullName)' to '${new_name}'."
-        }
-
-        return $new_name
-    }
 }
 
 
