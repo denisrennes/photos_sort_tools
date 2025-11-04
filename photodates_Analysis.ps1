@@ -46,6 +46,10 @@ using namespace System.Collections.Generic
 
     )
 
+# top-level try-catch to display detailed error messages 
+try {
+    
+
 Set-StrictMode -Version 3.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -55,6 +59,12 @@ if ( (-not (Test-Path variable:Is_SortPhotoDateTools_Loaded)) -or (-not $Is_Sort
     . (Join-Path $PSScriptRoot "Sort-PhotoDateTools.ps1")
 }
 
+# Check the directory existence
+$main_folder = Get-Item $Photo_Folder
+if ( $main_folder -isnot [System.IO.DirectoryInfo] ) {
+    throw "Not a directory: '${Photo_Folder}'"
+}
+
 # check $reg_prop argument if provided
 if ( $Ref_Prop ) {
     if ( $Ref_Prop -notin $PROP_LIST ) {
@@ -62,13 +72,6 @@ if ( $Ref_Prop ) {
     }
 }
 
-
-
-# check the folder existence
-$main_folder = Get-Item $Photo_Folder
-if ( -not ($main_folder.PSIsContainer) ) {
-    throw "Not a folder: '${Photo_Folder}'"
-}
 
 # Full path of the folder
 $main_folder_fullname = $main_folder.FullName
@@ -287,20 +290,20 @@ $global_main_has_subfolders = ($photo_subdir_list.Count -ge 2)
 
     ###### DISPLAY FOLDER RESULTS ######
 
-    Out ([Out]::normal) ''      # new line
+    Out normal  ''      # new line
 
 
     # display folder name
     if ( $is_main_folder -and ($nb_photos -eq 0) -and $global_main_has_subfolders ) {
         # for the main folder without photo files and with subfolders, just display the full name
-        Out ([Out]::normal) $folder_name
+        Out normal  $folder_name
     }
     else {
         if ( $folder_result_ok ) {
-            Out ([Out]::success) $folder_name
+            Out success $folder_name
         }
         else {
-            Out ([Out]::error) $folder_name
+            Out error $folder_name
         }
     }
 
@@ -310,7 +313,7 @@ $global_main_has_subfolders = ($photo_subdir_list.Count -ge 2)
         # Display a warning if the depth of the subdirectory tree if more than 1 sub-level (Typically only  "/YYYY-MM", "/YYYY-MM-dd" or "/YYYY-MM-dd(xd)" inside the given "YYYY" folder.)
         $level_3_subdir_list = @( Get-ChildItem -Directory -Recurse ($main_folder_fullname + '/*/*') )
         if ( $level_3_subdir_list.Count -ge 1 ) {
-            Out ([Out]::warning) "Warning: there are more than one level of subdirectories in the main folder. Ex: $($level_3_subdir_list[0].FullName.Substring($main_folder_fullname.Length))"
+            Out warning "Warning: there are more than one level of subdirectories in the main folder. Ex: $($level_3_subdir_list[0].FullName.Substring($main_folder_fullname.Length))"
         }
 
         # No photos but subfolders into the main folder: do not display anything else. Next subfolder
@@ -320,7 +323,7 @@ $global_main_has_subfolders = ($photo_subdir_list.Count -ge 2)
 
         # Display a warning if there are sub-folders and some photos files not in sub-folders
         if ( ($nb_photos -gt 0)-and $global_main_has_subfolders ) {
-            Out ([Out]::warning) "Warning: there are photo files in the main folder that are not in subfolders.)'"
+            Out warning "Warning: there are photo files in the main folder that are not in subfolders.)'"
         }
     }
     
@@ -345,18 +348,18 @@ $global_main_has_subfolders = ($photo_subdir_list.Count -ge 2)
 
     if ( $folder_result_ok ) {
         if ( $nb_datenormalized_filenames -eq $nb_photos ) {
-            Out ([Out]::success) $line
+            Out success $line
         }else {
-            Out ([Out]::warning) $line
+            Out warning $line
         }
     }
     else {
-        Out ([Out]::error) $line
+        Out error $line
     }
     
     if ( $nb_photos -eq 0 ) {
         # No photos in this subfolder: display a warning message but nothing else: Next subfolder
-        Out ([Out]::warning) "  Warning: no photos in this folder."           
+        Out warning "  Warning: no photos in this folder."           
         continue Next_subfolder
     }
     else {
@@ -413,34 +416,25 @@ $global_main_has_subfolders = ($photo_subdir_list.Count -ge 2)
 
             # display the property line
             if ( $is_prop_result_ok ) { 
-                Out ([Out]::success) $line 
+                Out success $line 
             } 
             else { 
-                Out ([Out]::error) $line 
+                Out error $line 
             }
 
         }
 
 
-        # Display the list of the photo files data for the subfolder 
+        # Display the list of the photo files data
         if( $List_Files ) {
 
-            if ( $ref_date_prop ) {
-                # Sort by reference property when it is provided
-                $sort_property = $ref_date_prop
-            }
-            else {
-                # Sort by filename when no reference property is provided
-                $sort_property = 'Name'
-            }
-
-            $photo_list | Sort-Object -Property $sort_property | 
+            $photo_list | Sort-Object -Property Name | 
                 Select-Object   Name, 
                                 @{ Name='CreateDateExif';   Expression={ date_diff_ref_tostring $_.CreateDateExif   ($ref_date_prop -eq 'CreateDateExif')    $_.$ref_date_prop } },
                                 @{ Name='DateTimeOriginal'; Expression={ date_diff_ref_tostring $_.DateTimeOriginal ($ref_date_prop -eq 'DateTimeOriginal')  $_.$ref_date_prop } },
                                 @{ Name='DateInFileName';   Expression={ date_diff_ref_tostring $_.DateInFileName   ($ref_date_prop -eq 'DateInFileName')    $_.$ref_date_prop } },
                                 @{ Name='LastWriteTime';    Expression={ date_diff_ref_tostring $_.LastWriteTime    ($ref_date_prop -eq 'LastWriteTime')     $_.$ref_date_prop } }
-                | Format-Table -AutoSize
+                | Format-Table -AutoSize | Out-String | Out normal
         }
     }
     
@@ -450,13 +444,27 @@ $global_main_has_subfolders = ($photo_subdir_list.Count -ge 2)
 if ( $global_main_has_subfolders ) {
     
     # Some subfolders: display a global result
-    Out ([Out]::normal) ''      # new line
-    Out ([Out]::normal) "============================"
+    Out normal  ''      # new line
+    Out normal  "============================"
     if ( $global_result_nb_folder_NOT_ok -eq 0 ) {
-        Out ([Out]::success) "OK: all $($photo_subdir_list.Count) subfolders are ok."
+        Out success "OK: all $($photo_subdir_list.Count) subfolders are ok."
     }
     else {
-        Out ([Out]::error) "NOT ok: ${global_result_nb_folder_NOT_ok} / $($photo_subdir_list.Count) subfolders are NOT ok."
+        Out error "NOT ok: ${global_result_nb_folder_NOT_ok} / $($photo_subdir_list.Count) subfolders are NOT ok."
     }
 
+}
+
+
+
+
+
+# top-level try-catch to display detailed error messages 
+}
+catch {
+    $err = $_
+    write-host "$($err.Exception.Message)" -ForegroundColor Red
+
+    $msg = ($err | Format-List *) | Out-String
+    write-host $msg -ForegroundColor DarkRed
 }

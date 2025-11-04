@@ -1,10 +1,11 @@
 [Nemo Action]
-Name=ren_normalized
+Name=ren__normalized
 Comment=Rename photo files date-normalized
-Exec=-- pwsh -NoLogo -NoExit -File '/home/denis/Documents/photos_sort_tools/ren_normalized.ps1' %F
+Exec=pwsh -NoLogo -NoExit -File '/home/denis/Documents/photos_sort_tools/ren_normalized.ps1' %F
 Terminal=true
 Icon-Name=folder-recent
 Selection=notnone
-MimeTypes=Image/*;Video/*;
+#Extensions=nodirs;
+Mimetypes=image/*;video/*;
 Quote=single
 Separator=,

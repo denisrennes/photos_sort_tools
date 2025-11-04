@@ -20,6 +20,10 @@ using namespace System.Collections.Generic
         [switch]$Force_ExifTool_Install
     )
 
+# top-level try-catch to display detailed error messages 
+try {
+    
+
 Set-StrictMode -Version 3.0
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -99,11 +103,6 @@ Write-Verbose "ok, ExifTool version ${exiftool_version} is available in '${exift
 # List of file extensions that can be written by ExifTool
 $EXIFTOOL_WRITABLE_EXTENSION_LIST = ('.360','.3g2','.3gp','.aax','.ai','.arq','.arw','.avif','.cr2','.cr3','.crm','.crw','.cs1','.dcp','.dng','.dr4','.dvb','.eps','.erf','.exif','.exv','.f4a','.f4v','.fff','.flif','.gif','.glv','.gpr','.hdp','.heic','.heif','.icc','.iiq','.ind','.insp','.jng','.jp2','.jpeg','.jpg','.jxl','.lrv','.m4a','.m4v','.mef','.mie','.mng','.mos','.mov','.mp4','.mpo','.mqv','.mrw','.nef','.nksc','.nrw','.orf','.ori','.pbm','.pdf','.pef','.pgm','.png','.ppm','.ps','.psb','.psd','.qtif','.raf','.raw','.rw2','.rwl','.sr2','.srw','.thm','.tiff','.vrd','.wdp','.webp','.x3f','.xmp')
 
-# List of file extensions to exclude from ExifTool processing (based on photos from Google TakeOuts and from a Synology NAS share)
-$EXIFTOOL_EXCLUDE_EXTENTION_LIST = ('.json','.html','.db','.jbf','.db@SynoEAStream','.jpg@SynoEAStream','.pdf@SynoEAStream')
-# Build the argument array for the '--ext' arguments of Exiftool command lines: ('--ext','.json','--ext','.html', ...) 
-$EXIFTOOL_ARGS_EXCLUDE_EXTS = ('--ext,' + ( $EXIFTOOL_EXCLUDE_EXTENTION_LIST -join ',--ext,' ) ) -split ','
-
 # Default date format for display, output
 $DEFAULT_DATE_FORMAT_PWSH = 'yyyy-MM-dd_HH-mm-ss'
 
@@ -128,45 +127,39 @@ $MAX_SUFFIX_DATE_NORMALIZED_FILENAME = 99
 $MAX_SECONDS_IDENTICAL_DATE_DIFF = 2
 
 
-# Display types: 
-enum Out {
-    normal
-    success
-    warning
-    error
-}
-
 function Out {
     [CmdletBinding()]
     param (
         # Output type: basically the color to display to host
         [Parameter(Mandatory, Position=0)]
-        [Out]$Out_Type,
+        [ValidateSet("normal","warning","success","error")]
+        [String]$Out_Type,
 
         # Text to output: basically to display to host with a specific color
-        [Parameter(Mandatory, Position = 1)]
-        [string]$Text,
+        [Parameter(ValueFromPipeline, Position = 1)]
+        [string]$Text = '',
 
         # No new line at the end of the text display. This allows the next text to be displayed on the same line
         [switch]$NoNewLine
     )
-
-    switch ($Out_Type) {
-        Normal {
-            Write-Host -NoNewLine:${NoNewLine} $Text
-            break
-        }
-        success {
-            Write-Host -NoNewLine:${NoNewLine} $Text -ForegroundColor Green
-            break
-        }
-        warning {
-            Write-Host -NoNewLine:${NoNewLine} $Text -ForegroundColor DarkYellow
-            break
-        }
-        error {
-            Write-Host -NoNewLine:${NoNewLine} $Text -ForegroundColor Red
-            break
+    process {
+        switch ($Out_Type) {
+            'normal' {
+                Write-Host -NoNewLine:${NoNewLine} $Text
+                break
+            }
+            'warning' {
+                Write-Host -NoNewLine:${NoNewLine} $Text -ForegroundColor Yellow
+                break
+            }
+            'success' {
+                Write-Host -NoNewLine:${NoNewLine} $Text -ForegroundColor Green
+                break
+            }
+            'error' {
+                Write-Host -NoNewLine:${NoNewLine} $Text -ForegroundColor Red
+                break
+            }
         }
     }
 }
@@ -328,12 +321,19 @@ The date-normalized filename pattern is  YYYY-MM-dd_HH-mm-ss[-n].<ext>
        if n -gt $MAX_SUFFIX_DATE_NORMALIZED_FILENAME then an exception is thrown: too much photos having the same date/time.
   '.<ext>' is the file name extension. It will be forced into lowercase if it is not already.
 
+If the Ref_Date argument is provided then the file name must also be based on this date and time.
+
 .NOTES
 The file existence is not verified.
 .EXAMPLE
 Is_DateNormalized_FileName ~/Documents/test_photos/2015-07-06_18-21-32.jpg
 
 Return $true
+.EXAMPLE
+$date_time = [datetime]"2020-01-01 01:48:02"
+Is_DateNormalized_FileName ~/Documents/test_photos/2015-07-06_18-21-32.jpg $date_time
+
+Return $false because the file name is not based on $date_time, even though it is date-normalized.
 .EXAMPLE
 Is_DateNormalized_FileName ~/Documents/test_photos/2015-07-06_18-21-32-100.jpg
 
@@ -348,7 +348,11 @@ Return $false because the extension must be in lowercase.
     param (
         # The literal path of the file.
         [Parameter(Mandatory, ValueFromPipeline, Position = 0)]
-        [string]$LiteralPath
+        [string]$LiteralPath,
+
+        # Reference Date: is the file name date-normalize with this date?
+        [Parameter(Position = 1)]
+        [Nullable[dateTime]]$Ref_Date = $null
     )
     process {
        
@@ -356,21 +360,27 @@ Return $false because the extension must be in lowercase.
         $file = [System.IO.FileInfo]::new( $LiteralPath )       # The file existence is not verified here
         $file_base_name = $File.BaseName
 
+        # The left part of the file base name: should contain the date-time value
         if ( $file_base_name.Length -lt $DATE_NORMALIZED_FILENAME_FORMAT_PWSH_LEN ) {
             # The file base name is too short, it cannot be a date-normalized file name
             return $false   
         }
-
-        # The left part of the file base name: should contain the date-time value
         $file_base_name_datetime = $file_base_name.SubString(0, $DATE_NORMALIZED_FILENAME_FORMAT_PWSH_LEN)
 
+        # Convert the left part to a [datetime], using the date-normalized file name format
         try {
-            # Convert the left part to a [datetime], using the date-normalized file name format
-            $null = [DateTime]::ParseExact($file_base_name_datetime, $DATE_NORMALIZED_FILENAME_FORMAT_PWSH, $null)
+            $Date_In_FileName = [DateTime]::ParseExact($file_base_name_datetime, $DATE_NORMALIZED_FILENAME_FORMAT_PWSH, $null)
         }
         catch {
             # Could not convert the left part to a [datetime], using the date-normalized file name format
             return $false
+        }
+
+        # If $Ref_Date is provided, it must be equal to the date in the file name
+        if ( $null -ne $Ref_Date ) {
+            if ( $Date_In_FileName -ne $Ref_Date ) {
+                return $false
+            }
         }
 
         # check possible trailing '-n', an optionnal integer to avoid identical file names: must be in '-1','-2', ...,'-99'
@@ -394,6 +404,7 @@ Return $false because the extension must be in lowercase.
         # The file extension must be in lowercase
         $ext = $file.Extension
         if ( $ext -cne $ext.ToLower() ) {
+            # The file extension is not lowercase
             return $false
         }
 
@@ -433,7 +444,7 @@ $date_time = Get_DateInFileName $file_path
 if ( $null -eq $date_time) { throw 'No date in file name' }
 Rename_DateNormalize $file_path $date_time
 
-The file is renamed as '2016-01-09_11-13-58.jpg' or '2016-01-09_11-13-58-1.jpg' (-2 -3 ...) if '2016-01-09_11-13-58.jpg' already existed.
+The 'IMG_20160109_111358_1.jpg' is renamed as '2016-01-09_11-13-58.jpg' or '2016-01-09_11-13-58-1.jpg' (or -2,-3,...) if '2016-01-09_11-13-58.jpg' already existed.
 
 The new name is returned: '2016-01-09_11-13-58.jpg' or '2016-01-09_11-13-58-1.jpg'...
 #>
@@ -484,12 +495,7 @@ The new name is returned: '2016-01-09_11-13-58.jpg' or '2016-01-09_11-13-58-1.jp
         }
 
         # Rename the file
-        try {
-            Rename-Item -NewName $new_name -LiteralPath $file.FullName -ErrorAction 'Stop'
-        }
-        catch {
-            throw "Error trying to rename '$($file.FullName)' to '${new_name}'."
-        }
+        Rename-Item -NewName $new_name -LiteralPath $file.FullName -ErrorAction 'Stop'
 
         return $new_name
     }
@@ -675,7 +681,7 @@ $photo_info_list.Count
     else {
         $exiftool_arg_list = @( )
     }
-    $exiftool_arg_list += ${EXIFTOOL_ARGS_EXCLUDE_EXTS} + '-s2' + '-d' + ${DATE_FORMAT_EXIFTOOL} + '-CreateDate' + '-DateTimeOriginal' + ${Directory_FullName}
+    $exiftool_arg_list += @( '-s2', '-d', ${DATE_FORMAT_EXIFTOOL}, '-CreateDate', '-DateTimeOriginal', ${Directory_FullName} )
     $temp_exiftool_stdout_file = New-TemporaryFile
     $temp_exiftool_stderr_file = New-TemporaryFile
     & exiftool $exiftool_arg_list 1>$temp_exiftool_stdout_file 2>$temp_exiftool_stderr_file
@@ -715,7 +721,7 @@ $photo_info_list.Count
     )
             
     # All files must exist and directories are not allowed
-    [List[FileInfo]]$file_list = @( $Photo_File_List | ForEach-Object {
+    [List[System.IO.FileInfo]]$file_list = @( $Photo_File_List | ForEach-Object {
         $file = Get-Item $_ -ErrorAction Stop
         if ( $file -isnot [System.IO.FileInfo] ) {
             throw "Incorrect Photo_File_List argument: this is not a file: '${$_}'"
@@ -723,17 +729,17 @@ $photo_info_list.Count
         $file
     } )
 
-    Write-Verbose "Getting photo files data for $($files_list.Count) files..."
+    Write-Verbose "Getting photo files data for $($file_list.Count) files..."
 
     # ExifTool command to get the file full path, CreateDate and DateTimeOriginal exif date/time for every photo file
     # This is 16 times much faster than call ExifTool for each file
-    $exiftool_arg_list = ${EXIFTOOL_ARGS_EXCLUDE_EXTS} + '-s2' + '-d' + ${DATE_FORMAT_EXIFTOOL} + '-CreateDate' + '-DateTimeOriginal' + $file_list.FullName
+    $exiftool_arg_list = @( '-s2', '-d', ${DATE_FORMAT_EXIFTOOL}, '-CreateDate', '-DateTimeOriginal' ) + $file_list.FullName
     $temp_exiftool_stdout_file = New-TemporaryFile
     $temp_exiftool_stderr_file = New-TemporaryFile
     & exiftool $exiftool_arg_list 1>$temp_exiftool_stdout_file 2>$temp_exiftool_stderr_file
     $exit_code = $LASTEXITCODE
     If ( $exit_code -ne 0 ) {
-        Throw "Get_Files_PhotoInfo: ExifTool command failed with a non-zero exit code ${exit_code}. See error file ${temp_stderr_file}"
+        Throw "Get_Files_PhotoInfo: ExifTool command failed with a non-zero exit code ${exit_code}. See error file ${temp_exiftool_stderr_file}"
     }
 
     # Parse the output lines of an Exiftool command line which read the exif tags 'CreateDateExif' and 'DateTimeOriginal' and return [PhotoInfo] objects.
@@ -939,6 +945,32 @@ Param(
     # .json and .html files are excluded because they are present in Google Takeout photo exports but they are not photo files.
     # *@SynoEAStream files are excluded because they are present in Synology photo shares but they are not photo files.
     Get-ChildItem -LiteralPath $photo_dir -Recurse -File -Exclude ('*.json','*.html','*@SynoEAStream','*.db','*.jbf') | Where-Object { $_.FullName -notlike '*@eaDir*' }
+}
+
+function Gci_Photo_Files {
+<#
+.SYNOPSIS
+Get the photo files of a directory.
+.DESCRIPTION
+Get the photo files of a directory.
+
+.EXAMPLE
+
+#>
+[CmdletBinding()]
+param (
+    # The directory to scan, where are the photo files
+    [Parameter(Mandatory, Position = 0)]
+    [string]$Photo_Directory,
+
+    # Process the subdirectories
+    [Parameter(Mandatory)]
+    [bool]$Recurse
+)
+        
+    Get-ChildItem -LiteralPath $Photo_Directory -Recurse:${Recurse} -File | Where-Object { $_.FullName -notlike '*@eaDir*' }
+
+
 }
 
 
@@ -1218,13 +1250,12 @@ Get_PhotoDir_Data $photo_dir ([ref]$photo_list)
         # ExifTool command to get the file full path, CreateDate and DateTimeOriginal for every photo file of $photo_dir
         # This is 16 times much faster than using Get-ChildItem and callin ExifTool for each file
         if ( $no_recurse ) {
-            $arg_recurse = $null
+            $exiftool_arg_list = @()
         }
         else {
-            $arg_recurse = '-recurse'
+            $exiftool_arg_list = @( '-recurse' )
         }
-        $arg_exclude_ext = '--ext json --ext html --ext db --ext jbf --ext ''db@SynoEAStream'' --ext ''jpg@SynoEAStream'' --ext ''pdf@SynoEAStream'''
-        $exiftool_arg_list = @( ${arg_recurse} ) + (${arg_exclude_ext} -split ' ') + '-ignoreMinorErrors' + '-s2' + '-d' + ${DATE_FORMAT_EXIFTOOL} + '-CreateDate' + '-DateTimeOriginal' + ${photo_dir}
+        $exiftool_arg_list += @( '-s2', '-d', ${DATE_FORMAT_EXIFTOOL}, '-CreateDate', '-DateTimeOriginal', ${photo_dir} )
         $temp_stdout_file = New-TemporaryFile
         $temp_stderr_file = New-TemporaryFile
         & exiftool $exiftool_arg_list 1>$temp_stdout_file 2>$temp_stderr_file
@@ -1304,3 +1335,14 @@ Get_PhotoDir_Data $photo_dir ([ref]$photo_list)
 }
 
 $Is_SortPhotoDateTools_Loaded = $true
+
+
+# top-level try-catch to display detailed error messages 
+}
+catch {
+    $err = $_
+    write-host "$($err.Exception.Message)" -ForegroundColor Red
+
+    $msg = ($err | Format-List *) | Out-String
+    write-host $msg -ForegroundColor DarkRed
+}

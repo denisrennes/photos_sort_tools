@@ -1,0 +1,10 @@
+[Nemo Action]
+Name=ren__ext__lowercase
+Comment=Rename photo files date-normalized
+Exec=pwsh -NoLogo -NoExit -File '/home/denis/Documents/photos_sort_tools/ren_ext_lowercase.ps1' %F -Recurse
+Terminal=true
+Icon-Name=folder-recent
+Selection=s
+Extensions=dir;
+Quote=single
+

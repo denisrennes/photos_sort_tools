@@ -13,10 +13,6 @@ The date-normalized filename pattern is  YYYY-MM-dd_HH-mm-ss[-n].<ext>
 The date properties of the photo file: 'CreateDateExif','DateTimeOriginal','DateInFileName','LastWriteTime'
 
 By default, files whose names are already date-normalized will not be renamed: use -Force_Already_Normalized to force renaming.
-
-The files renaming process:
-
-
 .NOTES
 ExifTool by Phil Harvey (https://exiftool.org/) may be automatically installed and its directory put in the PATH environment variable.
 .EXAMPLE
@@ -26,19 +22,22 @@ using namespace System.Collections
 using namespace System.Collections.Generic
 [CmdletBinding()]
     param (
-        # The photo files to be renamed with a date-normalized file name. Directories are not managed (too risky).
+        # The photo files to be renamed with a date-normalized file name. All files must belong to the same Directory.
         # The list can be provided as a single comma-separated string to handle Nemo file manager actions with multiple selections.
         [Parameter(Mandatory, Position = 0)]
         [string[]]$Photo_File_List,
 
-        # List of date properties, in order of priority for renaming
-        [Parameter(Mandatory=$true, Position=1)]
-        [string[]]$Date_Prop_List,
+        # Reference property
+        [Parameter(Position =1)]
+        [string]$Ref_Prop = $null,
 
         # Force the renaming for the files already having a date-normalized file name
         [switch]$Force_Already_Normalized
-
     )
+
+
+# top-level try-catch to display detailed error messages 
+try {
 
 
 Set-StrictMode -Version 3.0
@@ -55,94 +54,175 @@ if ( (-not (Test-Path variable:Is_SortPhotoDateTools_Loaded)) -or (-not $Is_Sort
 if ( $Photo_File_List.Count -eq 1 ) {
     $Photo_File_List = $Photo_File_List -split ','
 }
-# All files must exist and directories are not allowed
-[List[FileInfo]]$file_list = $Photo_File_List | ForEach-Object {
-    $file = Get-Item $_ -ErrorAction Stop
+# All files must exist and must belong to the same directory. Directories are not allowed.
+[List[System.IO.FileInfo]]$file_list = @( $Photo_File_List | ForEach-Object {
+    try { $file = Get-Item $_ -ErrorAction Stop }
+    catch { throw "This file does not exist: '${$_}'" }
     if ( $file -isnot [System.IO.FileInfo] ) {
         throw "Incorrect Photo_File_List argument: this is not a file: '${$_}'"
     }
     $file
+} )
+$dir_list = @( $file_list | Group-Object Directory -NoElement )
+if ( $dir_list.Count -ne 1 ) {
+    throw "All the files must belong to the same directory."
 }
 
-# Check the argument $Date_Prop_List
-$Date_Prop_List | ForEach-Object {
-    if ( $_ -notin $PROP_LIST ) {
-        throw "Incorrect Date_Prop_List argument: this is not a supported date property ($(${PROP_LIST} -join ',')): '${$_}'"
+# Parent Directory
+$parent_directory = $file_list[0].Directory
+
+# Check the argument $Ref_Prop
+if ( $Ref_Prop ) {
+    if ( $Ref_Prop -notin $PROP_LIST ) {
+        throw "Incorrect Ref_Date_Prop argument: '${Ref_Prop}' is not a supported date property ($(${PROP_LIST} -join ','))."
     }
 }
+
 
 # Get [List[PhotoInfo]]PhotoInfo_List, the required date values for every file
-if ( ('CreateDateExif' -notin $Date_Prop_List) -and ('DateTimeOriginal' -notin $Date_Prop_List) ) {
-    
-    # Calling ExifTool is not necessary as neither CreateDateExif nor DateTimeOriginal are required to rename the files 
-    [List[PhotoInfo]]$PhotoInfo_List = @( foreach ( $file in $file_list )  {
-        # Output a [PhotoInfo] object, whith null CreateDateExif and DateTimeOriginal properties, the other properties will be computed, like DateInFileName and LastWriteTime 
-        [PhotoInfo]::New( $file.FullName, $null, $null, $false )
-    } )
+[List[PhotoInfo]]$PhotoInfo_List = @( Get_Files_PhotoInfo $file_list -Compute_Hash:$false )
+
+# Reference property
+if ( $Ref_Prop ) {
+    # the referenece property is given as argument
+    $ref_date_prop = $Ref_Prop
 }
 else {
-
-    # Calling ExifTool is necessary as CreateDateExif and/or DateTimeOriginal are required to rename the files 
-    [List[PhotoInfo]]$PhotoInfo_List = @( Get_Files_PhotoInfo $file_list -Compute_Hash:$false )
-
-}
-
-# Rename the files
-
-# Nunmber of ok-named files for each property: either successfully renamed ot was already ok regarding this property name
-$name_ok_number_by_prop = [ordered]@{ }
-foreach ( $prop in $Date_Prop_List ) { $name_ok_number_by_prop += @{$prop = 0} }
-# Number of skipped files, not renamed because they were already date-normalized
-$skipped_number = 0
-
-try {
-    :Loop_File_Renaming Foreach ( $photoinfo in $PhotoInfo_List ) {
-
-        $file_fullname = $photoinfo.FullName
-
-        # By default, files whose names are already date-normalized will not be renamed: use -Force_Already_Normalized to force renaming.
-        if ( -not $Force_Already_Normalized ) {
-            if ( Is_DateNormalized_FileName $file_fullname ) {
-                Out ([Out]::warning) "'${file_fullname}' skipped, not renamed because it is already date-normalized"
-                $skipped_number += 1
-                continue Loop_File_Renaming
-            }
-        }
-
-        # Rename the file, date-normalized with the given date property list, in order of priority
-        :Loop_date_prop_list foreach ( $prop in $Date_Prop_List ) {
-            $date_time = $photoinfo.$prop
-            if ( $null -ne $datetime ) {
-                $new_name = Rename_DateNormalize $file_fullname $date_time
-                if ( $new_name ) {
-                    Out ([Out]::success) "'${file_fullname}' renamed as '${new_name}'}"
-                }
-                else {
-                    Out ([Out]::success) "'${file_fullname}' was already date-normalized with its date property '${prop}'}"
-                }
-                $name_ok_number_by_prop[${prop}] += 1
-                break Loop_date_prop_list
-            }
+    # Compute the reference property name: the property having the greatest number of dates in the file list
+    $ref_date_prop = $null
+    $max_nb_date = 0
+    foreach ( $date_prop in $PROP_LIST ) {
+        $prop_nb_dates = @( $PhotoInfo_List.$date_prop | Where-Object { $null -ne $_ } ).Count
+        if ( $prop_nb_dates -gt $max_nb_date ) {
+            $ref_date_prop = $date_prop
+            $max_nb_date = $prop_nb_dates
         }
     }
 }
+
+
+# Display the file data, confirm renaming or select another reference date property, or End/exit
+Do {
+    
+    # Display the list of the photo files data, sorted by Directory and Name: dates are displayed compared to the reference date property
+    Out normal ''
+    Out normal "${parent_directory}:"
+    $PhotoInfo_List | Sort-Object -Property Directory,Name | 
+        Select-Object   Name, 
+                        @{ Name='CreateDateExif';   Expression={ date_diff_ref_tostring $_.CreateDateExif   ($ref_date_prop -eq 'CreateDateExif')    $_.$ref_date_prop } },
+                        @{ Name='DateTimeOriginal'; Expression={ date_diff_ref_tostring $_.DateTimeOriginal ($ref_date_prop -eq 'DateTimeOriginal')  $_.$ref_date_prop } },
+                        @{ Name='DateInFileName';   Expression={ date_diff_ref_tostring $_.DateInFileName   ($ref_date_prop -eq 'DateInFileName')    $_.$ref_date_prop } },
+                        @{ Name='LastWriteTime';    Expression={ date_diff_ref_tostring $_.LastWriteTime    ($ref_date_prop -eq 'LastWriteTime')     $_.$ref_date_prop } }
+        | Format-Table -AutoSize | Out-String | Out normal
+
+    # user input 1: Confirm? y/n
+    Do {
+        $user_input1 = Read-Host "Confirm to rename the files with a date-normalized name, based on the '${ref_date_prop}' property? (y/n)"
+    } Until ( $user_input1 -in ('y','n') ) 
+
+    if ( $user_input1 -eq 'n' ) {
+        Out normal
+        
+        # User input 2: Select another date property, or Cancel
+        Do {
+            Out normal "Select another date property or end/exit: "
+            $user_input2 = Read-Host "Type C for 'CreateDateExif', O for 'DateTimeOriginal', F for 'DateInFileName', W for 'LastWriteTime', else E to End/Exit"
+        } Until ( $user_input2 -in ('C','O','F','W','E') ) 
+
+        switch ($user_input2) {
+            'C' { $ref_date_prop = 'CreateDateExif'; break }
+            'O' { $ref_date_prop = 'DateTimeOriginal'; break }
+            'F' { $ref_date_prop = 'DateInFileName'; break }
+            'W' { $ref_date_prop = 'LastWriteTime'; break }
+            
+            default {
+                # End/Exit
+                Out warning "Canceled by the user."
+                return
+            }
+        }
+    }
+} until ( ($user_input1 -eq 'y') )
+
+
+# Rename the files
+Out normal
+Out normal "Renaming the files, date-normalized, based on '${ref_date_prop}..."
+
+
+$number_already_ok = 0          # Number of files already having the right name: date-normalized based on the reference date
+$number_skipped = 0             # Number of skipped files, not renamed because they were already date-normalized
+$number_no_refdate = 0          # Number of files not renamed because it does not have a reference date property
+$number_renamed_success = 0     # Number of successfully renamed files
+$number_rename_error = 0        # Number of failed file renaming
+
+:Loop_File_Renaming Foreach ( $photoinfo in $PhotoInfo_List ) {
+
+    $file_fullname = $photoinfo.FullName
+    $file_name = $photoinfo.Name
+
+    # Already date-normalized based on the reference date?
+    if (Is_DateNormalized_FileName $file_fullname $photoinfo.${ref_date_prop} ) {
+        Out normal "'${file_name}' already date-normalized based on ${ref_date_prop}"
+        $number_already_ok += 1
+        continue Loop_File_Renaming
+    }
+
+    # By default, files whose names are already date-normalized will not be renamed: use -Force_Already_Normalized to force renaming.
+    if ( -not $Force_Already_Normalized ) {
+        if ( Is_DateNormalized_FileName $file_fullname ) {
+            Out warning "'${file_name}' skipped, not renamed because it is date-normalized"
+            $number_skipped += 1
+            continue Loop_File_Renaming
+        }
+    }
+
+    # Rename the file, date-normalized with the reference property
+    if ( $null -eq $photoinfo.$ref_date_prop ) {
+        Out warning "'${file_name}' not renamed because it does not have a ${ref_date_prop} property"
+        $number_no_refdate += 1
+    }
+    else {
+        try { 
+            $new_name = Rename_DateNormalize $file_fullname $photoinfo.$ref_date_prop
+            Out success "ok: '${file_name}' was successfully renamed as '${new_name}'"
+            $number_renamed_success += 1
+        }
+        catch {
+            $err = $_
+            $err_message = "ERROR trying to rename '${file_name}', date-normalized based on '$($photoinfo.$ref_date_prop.ToString($DEFAULT_DATE_FORMAT_PWSH))':"
+            $err_message += "${NL}[$($err.Exception.Message)]" 
+            Out error $err_message
+            $number_rename_error += 1
+        }
+    }
+}
+
+Out normal   ''
+Out normal   '===== Renaming results ====='
+Out normal   ("{0,4} files were selected" -f $PhotoInfo_List.Count)
+Out success  ("{0,4} files were successfully renamed" -f $number_renamed_success)
+if ( $number_already_ok -ne 0) {
+    Out success  ("{0,4} files were already correctly named: date-normalized based on the reference date ${ref_date_prop}" -f $number_already_ok)
+}
+if ( $number_skipped -ne 0) {
+    Out warning  ("{0,4} files were not renamed because they were already date-normalized (and -Force_Already_Normalized is not used)" -f $number_skipped)
+}
+if ( $number_rename_error -ne 0) {
+    Out error  ("{0,4} files failed to be renamed due to some error" -f $number_rename_error)
+}
+if ( $number_no_refdate -ne 0) {
+    Out warning  ("{0,4} files were not renamed because they do not have a the reference date property ${ref_date_prop}" -f $number_no_refdate)
+}
+
+
+
+# top-level try-catch to display detailed error messages 
+}
 catch {
-    Out ([Out]::error) $_
-    Out ([Out]::error) 'Renaming process is stopped.'
-}
+    $err = $_
+    write-host "$($err.Exception.Message)" -ForegroundColor Red
 
-Out ([Out]::normal) ''
-Out ([Out]::normal) '===== Renaming results ====='
-Out ([Out]::normal) ("{0:4} files" -f $PhotoInfo_List.Count)
-
-foreach ( $prop in $Date_Prop_List ) {
-    Out ([Out]::normal) ("{0:4} ok-named files with property '{1}'" -f $name_ok_number_by_prop[${prop}],$prop ) 
-}
-if ( $skipped_number -gt 0 ) {
-    Out ([Out]::warning) ("{0:4} skipped files, already date-normalized" -f $skipped_number ) 
-}
-
-$remaining_file_number = $PhotoInfo_List.Count - ($name_ok_number_by_prop.Values | Measure-Object -Sum).Sum - $skipped_number
-if ( $remaining_file_number -gt 0 ) {
-    Out ([Out]::error) ("{0:4} files still to be renamed (An error stopped the renaming process)" -f $remaining_file_number ) 
+    $msg = ($err | Format-List *) | Out-String
+    write-host $msg -ForegroundColor DarkRed
 }
