@@ -534,108 +534,6 @@ Class PhotoInfo {
 
 }
 
-function Convert_Exiftool_Output_to_PhotoInfo {
-<#
-.SYNOPSIS
-Parse the output lines of an Exiftool command line which reads the exif tags 'CreateDateExif' and 'DateTimeOriginal' and return [PhotoInfo] objects.
-.DESCRIPTION
-Parse the output lines of an Exiftool command line which reads the exif tags 'CreateDateExif' and 'DateTimeOriginal' and return [PhotoInfo] objects.
-
-Throw exceptions if the output file does not exist or has an incorrect content.
-.EXAMPLE
-[List[PhotoInfo]]$photo_info_list = Convert_Exiftool_Output_to_PhotoInfo $temp_exiftool_stdout_file
-#>
-[CmdletBinding()]
-    Param(
-        [Parameter(Mandatory, Position = 0)]
-        [string]$Exiftool_output_file,
-
-        # Will the hash of the files be computed and stored in the returned [PhotoInfo] objects?
-        [Parameter(Mandatory)]
-        [bool]$Compute_Hash
-    )
-
-    # Base variables to store the values parsed from the output lines of ExitTool command
-    $FullName = ''
-    $CreateDateExif = $null
-    $DateTimeOriginal = $null
-    
-    $line_number = 0
-    Get-Content $Exiftool_output_file | Foreach-Object {
-
-        $line_number += 1
-        $line = $_
-        <#  output lines example:
-        ======== /home/denis/Documents/photo_sets/nostrucs/photo/2006/2006-04 Pâque + Ilan/P1070163.JPG
-        CreateDate: 2006-04-19 19:34:23
-        DateTimeOriginal: 2006-04-19 19:34:23
-        ======== /home/denis/Documents/photo_sets/nostrucs/photo/2006/2006-04 Pâque + Ilan/P1070164.JPG
-        CreateDate: 2006-04-19 19:34:26
-        ======== /home/denis/Documents/photo_sets/nostrucs/photo/2006/2006-04 Pâque/100_1661.JPG
-        ...
-        ======== /home/denis/Documents/photo_sets/nostrucs/photo/2006/2006-04 Pâque/100_1662.JPG
-        ======== /home/denis/Documents/photo_sets/nostrucs/photo/2006/2006-04 Pâque/P1070162.JPG
-        DateTimeOriginal: 2006-04-19 19:33:52
-            1 directories scanned              # for command lines with files only, this line does not appear
-            71 image files read
-        #>
-
-        if ( $line -like '======== *') {
-            
-            # File Path line
-
-            # Output the previous file data as a [FileInfo] object
-            if ( $FullName -ne '' ) {
-                
-                # Return a new [PhotoInfo] object
-                [PhotoInfo]::New( $FullName, $CreateDateExif, $DateTimeOriginal, $Compute_Hash )
-
-                # Reset current file values of ExifTool output lines parsing
-                $FullName = ''
-                $CreateDateExif = $null
-                $DateTimeOriginal = $null
-            }
-            
-            # New file full name
-            $FullName = $line.substring(9)
-
-        }
-        elseif ( $line -like 'CreateDate: *') {
-            try {
-                $CreateDateExif = [dateTime]::ParseExact( $line.substring(12), ${DATE_FORMAT_EXIFTOOL_PWSH}, $null)
-            }
-            catch {
-                Throw "Incorrect CreateDate format returned by ExifTool: line number ${line_number} of '${Exiftool_output_file}'"
-            }
-        }
-        elseif ( $line -like 'DateTimeOriginal: *') {
-            try {
-                $DateTimeOriginal = [dateTime]::ParseExact( $line.substring(18), ${DATE_FORMAT_EXIFTOOL_PWSH}, $null)
-            }
-            catch {
-                Throw "Incorrect DateTimeOriginal format returned by ExifTool: line number ${line_number} of '${Exiftool_output_file}'"
-            }
-        }
-        else {
-            # 2 final lines: "    x directories scanned" then "   y image files read"
-            if ( ($line -notmatch '^[ ]*\d+ directories scanned$') -and ($line -notmatch '^[ ]*\d+ image files read$') ) {
-                Throw "Unexpected ExifTool output line: line number ${line_number} of '${Exiftool_output_file}'"
-            }
-            # Output the previous file data as a [FileInfo] object
-            if ( $FullName -ne '' ) {
-                
-                # Return a new [PhotoInfo] object
-                [PhotoInfo]::New( $FullName, $CreateDateExif, $DateTimeOriginal, $Compute_Hash )
-
-                # Reset current file values of ExifTool output lines parsing
-                $FullName = ''
-                $CreateDateExif = $null
-                $DateTimeOriginal = $null
-            }
-        }
-    }
-}
-
 function Get_Directory_PhotoInfo {
 <#
 .SYNOPSIS
@@ -681,17 +579,66 @@ $photo_info_list.Count
     else {
         $exiftool_arg_list = @( )
     }
-    $exiftool_arg_list += @( '-s2', '-d', ${DATE_FORMAT_EXIFTOOL}, '-CreateDate', '-DateTimeOriginal', ${Directory_FullName} )
-    $temp_exiftool_stdout_file = New-TemporaryFile
+    # Other arguments for Exiftool: '-json' to obtain a json formatted result, '-forcePrint' to always have the exif tags printed, even for non-existing tags: "CreateDate": "-",  
+    $exiftool_arg_list += @( '-json', '-forcePrint', '-dateFormat', ${DATE_FORMAT_EXIFTOOL}, '-CreateDate', '-DateTimeOriginal', ${Directory_FullName} )
+    $temp_exiftool_stdout_file = New-TemporaryFile      # it will be a json file
     $temp_exiftool_stderr_file = New-TemporaryFile
     & exiftool $exiftool_arg_list 1>$temp_exiftool_stdout_file 2>$temp_exiftool_stderr_file
     $exit_code = $LASTEXITCODE
     If ( $exit_code -ne 0 ) {
         Throw "Get_Directory_PhotoInfo: ExifTool command failed with a non-zero exit code ${exit_code}. See error file ${temp_stderr_file}"
     }
+    <# Output example:
+    {
+    "SourceFile": "/home/denis/Documents/photo_sets/nostrucs/photo/2016/2016-12/IMG_20161231_215045.jpg",
+    "CreateDate": "2016-12-31_21-50-46",
+    "DateTimeOriginal": "2016-12-31_21-50-46"
+    },
+    {
+    "SourceFile": "/home/denis/Documents/photo_sets/nostrucs/photo/2016/2016-12/00004.mts",
+    "CreateDate": "-",
+    "DateTimeOriginal": "2016-12-08_19-11-28"
+    }
+    #>
 
+    # Convert the .json output to custom objects
+    $result_list = Get-Content -Raw $temp_exiftool_stdout_file | ConvertFrom-Json -ErrorAction Stop
+  
     # Parse the output lines of an Exiftool command line which read the exif tags 'CreateDateExif' and 'DateTimeOriginal' and return [PhotoInfo] objects.
-    Convert_Exiftool_Output_to_PhotoInfo $temp_exiftool_stdout_file -Compute_Hash:${Compute_Hash}
+    $result_list | ForEach-Object {
+        
+        $FullName = $_.SourceFile
+
+        # CreateDateExif property
+        try {
+            if ( $_.CreateDate -eq '-' ) {
+                $CreateDateExif = $null
+            }
+            else {
+                $CreateDateExif = [dateTime]::ParseExact( $_.CreateDate, ${DATE_FORMAT_EXIFTOOL_PWSH}, $null)
+            }
+        }
+        catch {
+            Throw "Incorrect `"CreateDate`" format returned by the ExifTool command: see `"SourceFile`": `"$($_.SourceFile)`" in '${Exiftool_output_file}'"
+        }
+
+        # DateTimeOriginal property
+        try {
+            if ( $_.DateTimeOriginal -eq '-' ) {
+                $DateTimeOriginal = $null
+            }
+            else {
+                $DateTimeOriginal = [dateTime]::ParseExact( $_.DateTimeOriginal, ${DATE_FORMAT_EXIFTOOL_PWSH}, $null)
+            }
+        }
+        catch {
+            Throw "Incorrect `"DateTimeOriginal`" format returned by the ExifTool command: see `"SourceFile`": `"$($_.SourceFile)`" in '${Exiftool_output_file}'"
+        }
+
+        # Return the [PhotoInfo] object
+        [PhotoInfo]::New( $FullName, $CreateDateExif, $DateTimeOriginal, $Compute_Hash )
+        
+    }
 
 }
 
@@ -733,8 +680,9 @@ $photo_info_list.Count
 
     # ExifTool command to get the file full path, CreateDate and DateTimeOriginal exif date/time for every photo file
     # This is 16 times much faster than call ExifTool for each file
-    $exiftool_arg_list = @( '-s2', '-d', ${DATE_FORMAT_EXIFTOOL}, '-CreateDate', '-DateTimeOriginal' ) + $file_list.FullName
-    $temp_exiftool_stdout_file = New-TemporaryFile
+    # Other arguments for Exiftool: '-json' to obtain a json formatted result, '-forcePrint' to always have the exif tags printed, even for non-existing tags: "CreateDate": "-",  
+    $exiftool_arg_list += @( '-json', '-forcePrint', '-dateFormat', ${DATE_FORMAT_EXIFTOOL}, '-CreateDate', '-DateTimeOriginal' ) + $file_list.FullName
+    $temp_exiftool_stdout_file = New-TemporaryFile      # it will be a json file
     $temp_exiftool_stderr_file = New-TemporaryFile
     & exiftool $exiftool_arg_list 1>$temp_exiftool_stdout_file 2>$temp_exiftool_stderr_file
     $exit_code = $LASTEXITCODE
@@ -742,8 +690,57 @@ $photo_info_list.Count
         Throw "Get_Files_PhotoInfo: ExifTool command failed with a non-zero exit code ${exit_code}. See error file ${temp_exiftool_stderr_file}"
     }
 
+    <# Output example:
+    {
+    "SourceFile": "/home/denis/Documents/photo_sets/nostrucs/photo/2016/2016-12/IMG_20161231_215045.jpg",
+    "CreateDate": "2016-12-31_21-50-46",
+    "DateTimeOriginal": "2016-12-31_21-50-46"
+    },
+    {
+    "SourceFile": "/home/denis/Documents/photo_sets/nostrucs/photo/2016/2016-12/00004.mts",
+    "CreateDate": "-",
+    "DateTimeOriginal": "2016-12-08_19-11-28"
+    }
+    #>
+
+    # Convert the .json output to custom objects
+    $result_list = Get-Content -Raw $temp_exiftool_stdout_file | ConvertFrom-Json -ErrorAction Stop
+  
     # Parse the output lines of an Exiftool command line which read the exif tags 'CreateDateExif' and 'DateTimeOriginal' and return [PhotoInfo] objects.
-    Convert_Exiftool_Output_to_PhotoInfo $temp_exiftool_stdout_file -Compute_Hash:${Compute_Hash}
+    $result_list | ForEach-Object {
+        
+        $FullName = $_.SourceFile
+
+        # CreateDateExif property
+        try {
+            if ( $_.CreateDate -eq '-' ) {
+                $CreateDateExif = $null
+            }
+            else {
+                $CreateDateExif = [dateTime]::ParseExact( $_.CreateDate, ${DATE_FORMAT_EXIFTOOL_PWSH}, $null)
+            }
+        }
+        catch {
+            Throw "Incorrect `"CreateDate`" format returned by the ExifTool command: see `"SourceFile`": `"$($_.SourceFile)`" in '${Exiftool_output_file}'"
+        }
+
+        # DateTimeOriginal property
+        try {
+            if ( $_.DateTimeOriginal -eq '-' ) {
+                $DateTimeOriginal = $null
+            }
+            else {
+                $DateTimeOriginal = [dateTime]::ParseExact( $_.DateTimeOriginal, ${DATE_FORMAT_EXIFTOOL_PWSH}, $null)
+            }
+        }
+        catch {
+            Throw "Incorrect `"DateTimeOriginal`" format returned by the ExifTool command: see `"SourceFile`": `"$($_.SourceFile)`" in '${Exiftool_output_file}'"
+        }
+
+        # Return the [PhotoInfo] object
+        [PhotoInfo]::New( $FullName, $CreateDateExif, $DateTimeOriginal, $Compute_Hash )
+
+    }
 
 }
 
