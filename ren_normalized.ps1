@@ -69,7 +69,7 @@ if ( $dir_list.Count -ne 1 ) {
 }
 
 # Parent Directory
-$parent_directory = $file_list[0].Directory
+$directory_name = $file_list[0].Directory
 
 # Check the argument $Ref_Prop
 if ( $Ref_Prop ) {
@@ -106,7 +106,7 @@ Do {
     
     # Display the list of the photo files data, sorted by Directory and Name: dates are displayed compared to the reference date property
     Out normal ''
-    Out normal "${parent_directory}:"
+    Out normal "${directory_name}:"
     $PhotoInfo_List | Sort-Object -Property Directory,Name | 
         Select-Object   Name, 
                         @{ Name='CreateDateExif';   Expression={ date_diff_ref_tostring $_.CreateDateExif   ($ref_date_prop -eq 'CreateDateExif')    $_.$ref_date_prop } },

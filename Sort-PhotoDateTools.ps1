@@ -680,8 +680,8 @@ $photo_info_list.Count
 
     # ExifTool command to get the file full path, CreateDate and DateTimeOriginal exif date/time for every photo file
     # This is 16 times much faster than call ExifTool for each file
-    # Other arguments for Exiftool: '-json' to obtain a json formatted result, '-forcePrint' to always have the exif tags printed, even for non-existing tags: "CreateDate": "-",  
-    $exiftool_arg_list += @( '-json', '-forcePrint', '-dateFormat', ${DATE_FORMAT_EXIFTOOL}, '-CreateDate', '-DateTimeOriginal' ) + $file_list.FullName
+    # Arguments for Exiftool: '-json' to obtain a json formatted result, '-forcePrint' to always have the exif tags printed, even for non-existing tags: "CreateDate": "-",  
+    $exiftool_arg_list = @( '-json', '-forcePrint', '-dateFormat', ${DATE_FORMAT_EXIFTOOL}, '-CreateDate', '-DateTimeOriginal' ) + $file_list.FullName
     $temp_exiftool_stdout_file = New-TemporaryFile      # it will be a json file
     $temp_exiftool_stderr_file = New-TemporaryFile
     & exiftool $exiftool_arg_list 1>$temp_exiftool_stdout_file 2>$temp_exiftool_stderr_file

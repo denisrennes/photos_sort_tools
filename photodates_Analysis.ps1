@@ -186,7 +186,7 @@ $global_main_has_subfolders = ($photo_subdir_list.Count -ge 2)
             min_date                    = $min_date
             max_date                    = $max_date
             is_prop_ref                 = $false                    # will be computed at step #2
-            nb_dates_eq_ref             = -1                        # will be computed at step #3
+            nb_dates_eq_ref             = 0                        # will be computed at step #3
             is_prop_result_ok           = $false                    # will be computed at step #4
         }
         
@@ -213,29 +213,29 @@ $global_main_has_subfolders = ($photo_subdir_list.Count -ge 2)
                 }
             }
         }
+        # $ref_date_prop can be $null
     }
-
-    if ($null -ne $ref_date_prop ) {
+    if ( $null -ne $ref_date_prop ) {
         $prop_result[${ref_date_prop}].is_prop_ref = $true                                          # this is the reference property
         $prop_result[${ref_date_prop}].nb_dates_eq_ref  = $prop_result[${ref_date_prop}].nb_dates   # all the dates of this property, even out of folder range
     }
 
+    if ( $null -ne $ref_date_prop ) {
+        # Compute property results, step #3
+        foreach ( $date_prop in $PROP_LIST ) {
 
-    # Compute property results, step #3
-    foreach ( $date_prop in $PROP_LIST ) {
-
-        # Nb dates of this property equal to the dates of the reference property (date difference is less than 1 minute)
-        if ( $date_prop -ne $ref_date_prop ) {
-            $prop_result[${date_prop}].nb_dates_eq_ref  = 0
-            foreach ( $photo in $photo_list ) {
-                if ( ($null -ne $photo.$date_prop) -and ($null -ne $photo.$ref_date_prop) ) {
-                    if ( are_identical_dates $photo.$date_prop $photo.$ref_date_prop ) {
-                        $prop_result[${date_prop}].nb_dates_eq_ref  += 1
+            # Nb dates of this property equal to the dates of the reference property (date difference is less than $MAX_SECONDS_IDENTICAL_DATE_DIFF seconds)
+            if ( $date_prop -ne $ref_date_prop ) {
+                $prop_result[${date_prop}].nb_dates_eq_ref  = 0
+                foreach ( $photo in $photo_list ) {
+                    if ( ($null -ne $photo.$date_prop) -and ($null -ne $photo.$ref_date_prop) ) {
+                        if ( are_identical_dates $photo.$date_prop $photo.$ref_date_prop ) {
+                            $prop_result[${date_prop}].nb_dates_eq_ref  += 1
+                        }
                     }
                 }
             }
         }
-    
     }
 
     # Compute property results, step #4
@@ -266,8 +266,8 @@ $global_main_has_subfolders = ($photo_subdir_list.Count -ge 2)
             }               
         }
 
-            # 4) All dates are equal to the reference property
-            if ( $null -ne $ref_date_prop ) {
+        # 4) All dates are equal to the reference property
+        if ( $null -ne $ref_date_prop ) {
             if ( $prop_result[${date_prop}].nb_dates_eq_ref -ne $prop_result[${date_prop}].nb_dates ) {
                 continue
             }
@@ -401,14 +401,16 @@ $global_main_has_subfolders = ($photo_subdir_list.Count -ge 2)
                     }
 
                     # Nb of dates not equal to the reference property
-                    if ( $is_prop_ref ) {
-                        $line += ",     >> Ref <<    "
-                    }
-                    elseif ( $nb_dates_eq_ref -eq $prop_result[${ref_date_prop}].nb_dates ) {
-                        $line += ", Identical to Ref"
-                    }
-                    elseif ( $nb_dates_eq_ref -ge 0 ) {
-                            $line += ", {0,4} dates = Ref" -f $nb_dates_eq_ref
+                    if ( $null -ne $ref_date_prop ) {
+                        if ( $is_prop_ref ) {
+                            $line += ",     >> Ref <<    "
+                        }
+                        elseif ( $nb_dates_eq_ref -eq $prop_result[${ref_date_prop}].nb_dates ) {
+                            $line += ", Identical to Ref"
+                        }
+                        elseif ( $nb_dates_eq_ref -ge 0 ) {
+                                $line += ", {0,4} dates = Ref" -f $nb_dates_eq_ref
+                        }
                     }
                 }
 
@@ -430,10 +432,10 @@ $global_main_has_subfolders = ($photo_subdir_list.Count -ge 2)
 
             $photo_list | Sort-Object -Property Name | 
                 Select-Object   Name, 
-                                @{ Name='CreateDateExif';   Expression={ date_diff_ref_tostring $_.CreateDateExif   ($ref_date_prop -eq 'CreateDateExif')    $_.$ref_date_prop } },
-                                @{ Name='DateTimeOriginal'; Expression={ date_diff_ref_tostring $_.DateTimeOriginal ($ref_date_prop -eq 'DateTimeOriginal')  $_.$ref_date_prop } },
-                                @{ Name='DateInFileName';   Expression={ date_diff_ref_tostring $_.DateInFileName   ($ref_date_prop -eq 'DateInFileName')    $_.$ref_date_prop } },
-                                @{ Name='LastWriteTime';    Expression={ date_diff_ref_tostring $_.LastWriteTime    ($ref_date_prop -eq 'LastWriteTime')     $_.$ref_date_prop } }
+                                @{ Name='CreateDateExif';   Expression={ date_diff_ref_tostring $_.CreateDateExif   ($ref_date_prop -eq 'CreateDateExif')    ($ref_date_prop ? $_.$ref_date_prop : $null) } },
+                                @{ Name='DateTimeOriginal'; Expression={ date_diff_ref_tostring $_.DateTimeOriginal ($ref_date_prop -eq 'DateTimeOriginal')  ($ref_date_prop ? $_.$ref_date_prop : $null) } },
+                                @{ Name='DateInFileName';   Expression={ date_diff_ref_tostring $_.DateInFileName   ($ref_date_prop -eq 'DateInFileName')    ($ref_date_prop ? $_.$ref_date_prop : $null) } },
+                                @{ Name='LastWriteTime';    Expression={ date_diff_ref_tostring $_.LastWriteTime    ($ref_date_prop -eq 'LastWriteTime')     ($ref_date_prop ? $_.$ref_date_prop : $null) } }
                 | Format-Table -AutoSize | Out-String | Out normal
         }
     }
