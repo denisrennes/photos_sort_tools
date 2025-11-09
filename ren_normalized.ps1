@@ -29,7 +29,7 @@ using namespace System.Collections.Generic
 
         # Reference property
         [Parameter(Position =1)]
-        [string]$Ref_Prop = $null,
+        [string]$Ref_Prop = '',
 
         # Force the renaming for the files already having a date-normalized file name
         [switch]$Force_Already_Normalized
@@ -89,7 +89,7 @@ if ( $Ref_Prop ) {
 }
 else {
     # Compute the reference property name: the property having the greatest number of dates in the file list
-    $ref_date_prop = $null
+    $ref_date_prop = ''
     $max_nb_date = 0
     foreach ( $date_prop in $PROP_LIST ) {
         $prop_nb_dates = @( $PhotoInfo_List.$date_prop | Where-Object { $null -ne $_ } ).Count
@@ -107,17 +107,21 @@ Do {
     # Display the list of the photo files data, sorted by Directory and Name: dates are displayed compared to the reference date property
     Out normal ''
     Out normal "${directory_name}:"
-    $PhotoInfo_List | Sort-Object -Property Directory,Name | 
-        Select-Object   Name, 
-                        @{ Name='CreateDateExif';   Expression={ date_diff_ref_tostring $_.CreateDateExif   ($ref_date_prop -eq 'CreateDateExif')    $_.$ref_date_prop } },
-                        @{ Name='DateTimeOriginal'; Expression={ date_diff_ref_tostring $_.DateTimeOriginal ($ref_date_prop -eq 'DateTimeOriginal')  $_.$ref_date_prop } },
-                        @{ Name='DateInFileName';   Expression={ date_diff_ref_tostring $_.DateInFileName   ($ref_date_prop -eq 'DateInFileName')    $_.$ref_date_prop } },
-                        @{ Name='LastWriteTime';    Expression={ date_diff_ref_tostring $_.LastWriteTime    ($ref_date_prop -eq 'LastWriteTime')     $_.$ref_date_prop } }
-        | Format-Table -AutoSize | Out-String | Out normal
 
+    $PhotoInfo_List | Sort-Object -Property Name | 
+        Select-Object   Name, 
+                        @{ Name='CreateDateExif';   Expression={ date_diff_ref_tostring $_.CreateDateExif   ($ref_date_prop -eq 'CreateDateExif')    ($ref_date_prop ? $_.$ref_date_prop : $null) } },
+                        @{ Name='DateTimeOriginal'; Expression={ date_diff_ref_tostring $_.DateTimeOriginal ($ref_date_prop -eq 'DateTimeOriginal')  ($ref_date_prop ? $_.$ref_date_prop : $null) } },
+                        @{ Name='DateInFileName';   Expression={ date_diff_ref_tostring $_.DateInFileName   ($ref_date_prop -eq 'DateInFileName')    ($ref_date_prop ? $_.$ref_date_prop : $null) } },
+                        @{ Name='LastWriteTime';    Expression={ date_diff_ref_tostring $_.LastWriteTime    ($ref_date_prop -eq 'LastWriteTime')     ($ref_date_prop ? $_.$ref_date_prop : $null) } }
+        | Format-Table -AutoSize | Out-String -Stream  | Out normal -Highlight_Text $ref_date_prop
+    
     # user input 1: Confirm? y/n
     Do {
-        $user_input1 = Read-Host "Confirm to rename the files with a date-normalized name, based on the '${ref_date_prop}' property? (y/n)"
+        $input_default = 'n'
+        Out normal -NoNewLine "Confirm to rename the files with a date-normalized name, based on the '${ref_date_prop}' property? [y/n(default)]: " -Highlight_Text $ref_date_prop
+        $user_input1 = Read-Host
+        if (-not $user_input1 ) { $user_input1 = $input_default }
     } Until ( $user_input1 -in ('y','n') ) 
 
     if ( $user_input1 -eq 'n' ) {
@@ -125,8 +129,12 @@ Do {
         
         # User input 2: Select another date property, or Cancel
         Do {
-            Out normal "Select another date property or end/exit: "
-            $user_input2 = Read-Host "Type C for 'CreateDateExif', O for 'DateTimeOriginal', F for 'DateInFileName', W for 'LastWriteTime', else E to End/Exit"
+            Out normal "Select another date property as reference for the renaming: "
+            $input_default = 'E'  # Return ==> Exit
+            Out normal -NoNewLine "Type C for 'CreateDateExif', O for 'DateTimeOriginal', F for 'DateInFileName', W for 'LastWriteTime' or E to End. [C,O,F,W,E(default)]: " -Highlight_Text $ref_date_prop
+            $user_input2 = Read-Host
+            if (-not $user_input2 ) { $user_input2 = $input_default }
+
         } Until ( $user_input2 -in ('C','O','F','W','E') ) 
 
         switch ($user_input2) {
@@ -147,7 +155,7 @@ Do {
 
 # Rename the files
 Out normal
-Out normal "Renaming the files, date-normalized, based on '${ref_date_prop}..."
+Out normal "Renaming the files, date-normalized, based on '${ref_date_prop}..." -Highlight_Text $ref_date_prop
 
 
 $number_already_ok = 0          # Number of files already having the right name: date-normalized based on the reference date
@@ -163,7 +171,7 @@ $number_rename_error = 0        # Number of failed file renaming
 
     # Already date-normalized based on the reference date?
     if (Is_DateNormalized_FileName $file_fullname $photoinfo.${ref_date_prop} ) {
-        Out normal "'${file_name}' already date-normalized based on ${ref_date_prop}"
+        Out normal "'${file_name}' already date-normalized based on ${ref_date_prop}" -Highlight_Text $ref_date_prop
         $number_already_ok += 1
         continue Loop_File_Renaming
     }
@@ -179,7 +187,7 @@ $number_rename_error = 0        # Number of failed file renaming
 
     # Rename the file, date-normalized with the reference property
     if ( $null -eq $photoinfo.$ref_date_prop ) {
-        Out warning "'${file_name}' not renamed because it does not have a ${ref_date_prop} property"
+        Out warning "'${file_name}' not renamed because it does not have a ${ref_date_prop} property" -Highlight_Text $ref_date_prop
         $number_no_refdate += 1
     }
     else {
@@ -203,7 +211,7 @@ Out normal   '===== Renaming results ====='
 Out normal   ("{0,4} files were selected" -f $PhotoInfo_List.Count)
 Out success  ("{0,4} files were successfully renamed" -f $number_renamed_success)
 if ( $number_already_ok -ne 0) {
-    Out success  ("{0,4} files were already correctly named: date-normalized based on the reference date ${ref_date_prop}" -f $number_already_ok)
+    Out success  ("{0,4} files were already correctly named: date-normalized based on the reference date ${ref_date_prop}" -f $number_already_ok) -Highlight_Text $ref_date_prop
 }
 if ( $number_skipped -ne 0) {
     Out warning  ("{0,4} files were not renamed because they were already date-normalized (and -Force_Already_Normalized is not used)" -f $number_skipped)
@@ -212,7 +220,7 @@ if ( $number_rename_error -ne 0) {
     Out error  ("{0,4} files failed to be renamed due to some error" -f $number_rename_error)
 }
 if ( $number_no_refdate -ne 0) {
-    Out warning  ("{0,4} files were not renamed because they do not have a the reference date property ${ref_date_prop}" -f $number_no_refdate)
+    Out warning  ("{0,4} files were not renamed because they do not have a the reference date property ${ref_date_prop}" -f $number_no_refdate) -Highlight_Text $ref_date_prop
 }
 
 

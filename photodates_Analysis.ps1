@@ -98,17 +98,14 @@ $global_main_has_subfolders = ($photo_subdir_list.Count -ge 2)
         $folder_name = $main_folder_fullname            # folder name: fullname for the main folder
     }
 
-    ### old ### # Get date data for all photo files contained in the photo folder
-    ### old ### Get_PhotoDir_Data $photo_dir ([ref]$photo_list) -no_recurse -no_hash -Verbose:$false
-    
     # Get [PhotoInfo] objects for all photo files in a photo directory.
-    [List[PhotoInfo]]$photo_list = @( Get_Directory_PhotoInfo $photo_dir -Recurse:$false -Compute_Hash:$false  )
+    [List[PhotoInfo]]$PhotoInfo_List = @( Get_Directory_PhotoInfo $photo_dir -Recurse:$false -Compute_Hash:$false  )
     
     # Number of photo files in this folder
-    $nb_photos = $photo_list.Count
+    $nb_photos = $PhotoInfo_List.Count
 
     # Number of date-normalized photo file names in this folder
-    $nb_datenormalized_filenames = @( $photo_list | Where-Object { $_.IsNormalizedName } ).Count
+    $nb_datenormalized_filenames = @( $PhotoInfo_List | Where-Object { $_.IsNormalizedName } ).Count
 
     # Force result ok for the main folder without direct child photo files but with subfolders
     if ( $is_main_folder -and ($nb_photos -eq 0) -and $global_main_has_subfolders ) {
@@ -145,11 +142,11 @@ $global_main_has_subfolders = ($photo_subdir_list.Count -ge 2)
         $max_date = $null
 
         # sorted list of the dates of this property (date-only, the time part is discarded)
-        if ( $photo_list.Count -eq 0 ) {
+        if ( $PhotoInfo_List.Count -eq 0 ) {
             $nb_dates = 0
         }
         else {
-            $sorted_dates = @( $photo_list.$date_prop | Sort-Object | ForEach-Object { $_.Date } )
+            $sorted_dates = @( $PhotoInfo_List.$date_prop | Sort-Object | ForEach-Object { $_.Date } )
             $nb_dates = $sorted_dates.Count
         }
 
@@ -200,7 +197,7 @@ $global_main_has_subfolders = ($photo_subdir_list.Count -ge 2)
     }
     else {
         # Compute property results, step #2: compute the reference property name, the property having the greatest number of dates within the folder range
-        $ref_date_prop = $null
+        $ref_date_prop = ''
         $max_nb_date_in_folder_range = 0
         if ( $null -ne $min_date_folder  ) {        # only for the folders having a date folder range
             foreach ( $date_prop in $PROP_LIST ) {
@@ -213,21 +210,21 @@ $global_main_has_subfolders = ($photo_subdir_list.Count -ge 2)
                 }
             }
         }
-        # $ref_date_prop can be $null
+        # $ref_date_prop can be empty
     }
-    if ( $null -ne $ref_date_prop ) {
+    if ( $ref_date_prop ) {
         $prop_result[${ref_date_prop}].is_prop_ref = $true                                          # this is the reference property
         $prop_result[${ref_date_prop}].nb_dates_eq_ref  = $prop_result[${ref_date_prop}].nb_dates   # all the dates of this property, even out of folder range
     }
 
-    if ( $null -ne $ref_date_prop ) {
+    if ( $ref_date_prop ) {
         # Compute property results, step #3
         foreach ( $date_prop in $PROP_LIST ) {
 
             # Nb dates of this property equal to the dates of the reference property (date difference is less than $MAX_SECONDS_IDENTICAL_DATE_DIFF seconds)
             if ( $date_prop -ne $ref_date_prop ) {
                 $prop_result[${date_prop}].nb_dates_eq_ref  = 0
-                foreach ( $photo in $photo_list ) {
+                foreach ( $photo in $PhotoInfo_List ) {
                     if ( ($null -ne $photo.$date_prop) -and ($null -ne $photo.$ref_date_prop) ) {
                         if ( are_identical_dates $photo.$date_prop $photo.$ref_date_prop ) {
                             $prop_result[${date_prop}].nb_dates_eq_ref  += 1
@@ -267,7 +264,7 @@ $global_main_has_subfolders = ($photo_subdir_list.Count -ge 2)
         }
 
         # 4) All dates are equal to the reference property
-        if ( $null -ne $ref_date_prop ) {
+        if ( $ref_date_prop ) {
             if ( $prop_result[${date_prop}].nb_dates_eq_ref -ne $prop_result[${date_prop}].nb_dates ) {
                 continue
             }
@@ -401,7 +398,7 @@ $global_main_has_subfolders = ($photo_subdir_list.Count -ge 2)
                     }
 
                     # Nb of dates not equal to the reference property
-                    if ( $null -ne $ref_date_prop ) {
+                    if ( $ref_date_prop ) {
                         if ( $is_prop_ref ) {
                             $line += ",     >> Ref <<    "
                         }
@@ -418,10 +415,10 @@ $global_main_has_subfolders = ($photo_subdir_list.Count -ge 2)
 
             # display the property line
             if ( $is_prop_result_ok ) { 
-                Out success $line 
+                Out success $line -Highlight_Text '>> Ref <<'
             } 
             else { 
-                Out error $line 
+                Out error $line -Highlight_Text '>> Ref <<' 
             }
 
         }
@@ -430,14 +427,16 @@ $global_main_has_subfolders = ($photo_subdir_list.Count -ge 2)
         # Display the list of the photo files data
         if( $List_Files ) {
 
-            $photo_list | Sort-Object -Property Name | 
+           $formated_table  = $PhotoInfo_List | Sort-Object -Property Name | 
                 Select-Object   Name, 
                                 @{ Name='CreateDateExif';   Expression={ date_diff_ref_tostring $_.CreateDateExif   ($ref_date_prop -eq 'CreateDateExif')    ($ref_date_prop ? $_.$ref_date_prop : $null) } },
                                 @{ Name='DateTimeOriginal'; Expression={ date_diff_ref_tostring $_.DateTimeOriginal ($ref_date_prop -eq 'DateTimeOriginal')  ($ref_date_prop ? $_.$ref_date_prop : $null) } },
                                 @{ Name='DateInFileName';   Expression={ date_diff_ref_tostring $_.DateInFileName   ($ref_date_prop -eq 'DateInFileName')    ($ref_date_prop ? $_.$ref_date_prop : $null) } },
                                 @{ Name='LastWriteTime';    Expression={ date_diff_ref_tostring $_.LastWriteTime    ($ref_date_prop -eq 'LastWriteTime')     ($ref_date_prop ? $_.$ref_date_prop : $null) } }
-                | Format-Table -AutoSize | Out-String | Out normal
-        }
+                | Format-Table -AutoSize | Out-String -Stream  | Out normal -Highlight_Text $ref_date_prop
+
+         }
+
     }
     
 }   # foreach ( $photo_dir ...

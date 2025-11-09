@@ -124,42 +124,94 @@ $DATE_NORMALIZED_FILENAME_FORMAT_PWSH_LEN = 19      # There could be escape char
 $MAX_SUFFIX_DATE_NORMALIZED_FILENAME = 99
 
 # The maximum number of seconds that can differ between two dates for them to be considered identical.
-$MAX_SECONDS_IDENTICAL_DATE_DIFF = 2
+$MAX_SECONDS_IDENTICAL_DATE_DIFF = 1
 
 
+<#
+.SYNOPSIS
+Output text to the user (write-host) with different output types: 'normal','highlight', 'warning','success','error' 
+.SYNOPSIS
+Output text to the user (write-host) with different output types: 'normal','highlight', 'warning','success','error' 
+.EXAMPLE
+Out normal "Hello World!"
+.EXAMPLE
+Out normal "Hello World!" $Highlight_Text "World"
+.EXAMPLE
+Out success "Ok we did it."
+.EXAMPLE
+Out error  "Oh no, big mistake."
+#>
 function Out {
     [CmdletBinding()]
     param (
         # Output type: basically the color to display to host
         [Parameter(Mandatory, Position=0)]
-        [ValidateSet("normal","warning","success","error")]
+        [ValidateSet('normal','highlight', 'warning','success','error')]
         [String]$Out_Type,
 
         # Text to output: basically to display to host with a specific color
         [Parameter(ValueFromPipeline, Position = 1)]
         [string]$Text = '',
 
+        # String to display in highlight type if it is found into $Text, case sensitive
+        [string]$Highlight_Text = '',
+
         # No new line at the end of the text display. This allows the next text to be displayed on the same line
         [switch]$NoNewLine
     )
     process {
-        switch ($Out_Type) {
-            'normal' {
-                Write-Host -NoNewLine:${NoNewLine} $Text
-                break
+        # Is there a contained string to display in highlight type? ( Index of teh string to highlight or -1 )
+        if ( $Text -and $Highlight_Text ) {
+            $index_highlight = $Text.IndexOf($Highlight_Text)
+        }
+        else {
+            $index_highlight = -1
+        }
+
+        # No $Highlight_Text
+        if ( $index_highlight -eq -1  ) {
+
+            switch ($Out_Type) {
+                'normal' {
+                    Write-Host -NoNewLine:${NoNewLine} $Text -ForegroundColor White
+                    break
+                }
+                'highlight' {
+                    Write-Host -NoNewLine:${NoNewLine} $Text -ForegroundColor Cyan
+                    break
+                }
+                'warning' {
+                    Write-Host -NoNewLine:${NoNewLine} $Text -ForegroundColor Yellow
+                    break
+                }
+                'success' {
+                    Write-Host -NoNewLine:${NoNewLine} $Text -ForegroundColor DarkGreen
+                    break
+                }
+                'error' {
+                    Write-Host -NoNewLine:${NoNewLine} $Text -ForegroundColor DarkRed
+                    break
+                }
             }
-            'warning' {
-                Write-Host -NoNewLine:${NoNewLine} $Text -ForegroundColor Yellow
-                break
-            }
-            'success' {
-                Write-Host -NoNewLine:${NoNewLine} $Text -ForegroundColor Green
-                break
-            }
-            'error' {
-                Write-Host -NoNewLine:${NoNewLine} $Text -ForegroundColor Red
-                break
-            }
+        }
+
+        # $Highlight_Text to display in highlight type if it is found into $Text
+        else {
+                # Display the part before $Highlight_Text, no highlight, no NewLine
+                $left_part = $Text.Substring(0,$index_highlight)
+                Out $Out_Type -NoNewLine $left_part
+                
+                # Display $Highlight_Text, highlight, no NewLine
+                Out highlight -NoNewLine $Highlight_Text
+                
+                # Display (no NewLine) the rest of the text, which may also contain $Highlight_Text
+                $rest_index = $index_highlight + $Highlight_Text.Length
+                if ( $rest_index -le ($Text.Length) ) {
+                    Out $Out_Type -NoNewLine ($Text.Substring($rest_index)) -Highlight_Text $Highlight_Text
+                }
+
+                # End of $Text: New Line if necessary
+                Write-Host -NoNewLine:${NoNewLine} ''
         }
     }
 }
@@ -175,41 +227,50 @@ function date_range_tostring {
 function date_diff_ref_tostring {
 <#
 .SYNOPSIS
-Output a photo date property, possibly compared to a reference date property, as a string for display purpose
+Display a photo date property, possibly as a difference from a “reference” date, as a string for display purposes.
 .DESCRIPTION
-Output a photo date property, possibly compared to a reference date property, as a string for display purpose
+Display a photo date property, possibly as a difference from a “reference” date, as a string for display purposes.
 
-if $ref_date is provided then only this date is printed, fo the other date properties, the time span from the reference date is displayed.
+If there is no reference property, output the full datetime, default formatted
+Is Date the reference ? If so, just output the full datetime, default formatted
+If the date is identical to the reference date, plus or minus $MAX_SECONDS_IDENTICAL_DATE_DIFF seconds, then output '    =ref'
+If a reference property is provided, not identical to the date: output the datetime span from $ref_date, formatted like +-{xx}d {xx}h{xx}m{xx}s
+
 #>
 [CmdletBinding()]
     param (
         # Date property to convert to a string for display purpose
-        $date,
+        [Nullable[DateTime]]$Date,
 
-        # Is this the reference property?
-        [bool]$is_ref_prop,
+        # Is Date the reference ? If so, just display it
+        [bool]$Is_Date_Ref,
 
-        # Reference date property
-        $ref_date = $null
+        # Reference Date property: if provided then display the difference from this reference
+        [Nullable[DateTime]]$ref_date = $null
     )
     process {
-        if ( -not $date ) {
-            # date property is $null
+        if ( -not $Date ) {
+            # Date property is $null
             return ''   
         }
 
-        if ( $is_ref_prop -or (-not $ref_date) ) {
-            # If this is the reference property or if there is no reference property, output the full datetime, formatted
-            return $date.ToString($DEFAULT_DATE_FORMAT_PWSH)
+        # Is Date the reference ? If so, just output the full datetime, default formatted
+        if ( $Is_Date_Ref ) {
+            return $Date.ToString($DEFAULT_DATE_FORMAT_PWSH)
         }
 
-        # date identical to the reference date
-        if ( are_identical_dates $date $ref_date ) {
+        # If there is no reference property, output the full datetime, default formatted
+        if ( $null -eq $ref_date ) {
+            return $Date.ToString($DEFAULT_DATE_FORMAT_PWSH)
+        }
+
+        # If the Date is identical to the reference Date, plus or minus $MAX_SECONDS_IDENTICAL_DATE_DIFF seconds, output '    =ref'
+        if ( are_identical_dates $Date $ref_date ) {
             return '     =ref'
         }
 
-        # There is a reference property and the date is not the reference property and they are not identical: output the datetime span from $ref_date, formatted
-        $time_span = $date - $ref_date
+        # If a reference property is provided, not identical to the Date: output the datetime span from $ref_date, formatted like +-{xx}d {xx}h{xx}m{xx}s
+        $time_span = $Date - $ref_date
         if ( $time_span -gt 0 ) {
             $signe = "+"
         }
