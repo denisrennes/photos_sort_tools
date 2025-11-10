@@ -866,7 +866,7 @@ function are_identical_dates {
         $result = $false
     }
     else {
-        $result = ( [math]::Abs( ($date1 - $date2).TotalSeconds ) -le $MAX_SECONDS_IDENTICAL_DATE_DIFF )
+        $result = ( [math]::Abs( ($date1 - $date2).TotalSeconds ) -lt $MAX_SECONDS_IDENTICAL_DATE_DIFF )
     }
     return $result
 }
