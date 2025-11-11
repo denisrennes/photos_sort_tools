@@ -186,8 +186,6 @@ if ( $Do_calculate ) {
 
     # Calculate photo file data
     Write-Verbose "Calculating `$photo_list = data for the ${photo_count} photo/video files...' "
-    ### old ### $photo_list = [ArrayList]@()
-    ### old ### Get_PhotoDir_Data $photo_dir ([ref]$photo_list)
 
     # Get [PhotoInfo] objects for all photo files in a photo directory.
     [List[PhotoInfo]]$photo_list = Get_Directory_PhotoInfo $photo_dir  -Recurse:$true -Compute_Hash:$true

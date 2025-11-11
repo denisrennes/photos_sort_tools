@@ -112,16 +112,13 @@ $DATE_FORMAT_EXIFTOOL_PWSH = 'yyyy-MM-dd_HH-mm-ss'
 $DATE_FORMAT_EXIFTOOL = '%Y-%m-%d_%H-%M-%S'
 
 # Powershell date-normalized file name format:
-# The date-normalized filename pattern is  YYYY-MM-dd_HH-mm-ss[-n].<ext> 
+# The date-normalized filename pattern is  YYYY-MM-dd_HH-mm-ss[_NN].<ext> 
 #   “YYYY-MM-dd_HH-mm-ss” is the date and time, in ISO 8601 format, accurate to the second, but with “-” and “_” as separators, in order to stay compatible with old file systems.
-#   '-n' is an optionnal integer to avoid identical file names in the same directory. 
-#        if n -gt $MAX_SUFFIX_DATE_NORMALIZED_FILENAME then an exception is thrown: too much photos having the same date/time.
+#   '_NN' is an optionnal integer to avoid identical file names in the same directory. 
+#        if NN is greater than 99 then an exception is thrown: too much photos having the same date/time.
 #   '.<ext>' is the file name extension. It will be forced into lowercase if it is not already.
 $DATE_NORMALIZED_FILENAME_FORMAT_PWSH = 'yyyy-MM-dd_HH-mm-ss'
 $DATE_NORMALIZED_FILENAME_FORMAT_PWSH_LEN = 19      # There could be escape characters into the format, so we do not use .Length
-
-# Max suffix counter for date-normalized file name: 'yyyy-MM-dd_HH-mm-ss-99'
-$MAX_SUFFIX_DATE_NORMALIZED_FILENAME = 99
 
 # The maximum number of seconds that can differ between two dates for them to be considered identical.
 $MAX_SECONDS_IDENTICAL_DATE_DIFF = 1
@@ -376,10 +373,10 @@ Is a file name a date-normalized file name?
 .DESCRIPTION
 Returns $true if the file name is a date-normalized filename:
 
-The date-normalized filename pattern is  YYYY-MM-dd_HH-mm-ss[-n].<ext> 
+The date-normalized filename pattern is  YYYY-MM-dd_HH-mm-ss[_NN].<ext> 
   “YYYY-MM-dd_HH-mm-ss” is the date and time, in ISO 8601 format, accurate to the second, but with “-” and “_” as separators, in order to stay compatible with old file systems.
-  '-n' is an optionnal integer to avoid identical file names in the same directory. 
-       if n -gt $MAX_SUFFIX_DATE_NORMALIZED_FILENAME then an exception is thrown: too much photos having the same date/time.
+  '_NN' is an optionnal integer to avoid identical file names in the same directory. 
+        if NN is greater than 99 then an exception is thrown: too much photos having the same date/time.
   '.<ext>' is the file name extension. It will be forced into lowercase if it is not already.
 
 If the Ref_Date argument is provided then the file name must also be based on this date and time.
@@ -396,9 +393,13 @@ Is_DateNormalized_FileName ~/Documents/test_photos/2015-07-06_18-21-32.jpg $date
 
 Return $false because the file name is not based on $date_time, even though it is date-normalized.
 .EXAMPLE
-Is_DateNormalized_FileName ~/Documents/test_photos/2015-07-06_18-21-32-100.jpg
+Is_DateNormalized_FileName ~/Documents/test_photos/2015-07-06_18-21-32-1.jpg
 
-Return $false because '-100' at the end of the base name is not allowed. It should be '-1','-2', ...,'-99'.
+Return $false because '-1' at the end of the base name is not allowed. It should be '_01'.
+.EXAMPLE
+Is_DateNormalized_FileName ~/Documents/test_photos/2015-07-06_18-21-32_100.jpg
+
+Return $false because '_100' at the end of the base name is not allowed. It should be '_01','_02', ...,'_99'.
 .EXAMPLE
 Is_DateNormalized_FileName ~/Documents/test_photos/2015-07-06_18-21-32.JPG
 
@@ -444,20 +445,21 @@ Return $false because the extension must be in lowercase.
             }
         }
 
-        # check possible trailing '-n', an optionnal integer to avoid identical file names: must be in '-1','-2', ...,'-99'
+        # check possible trailing '_NN', an optionnal integer to avoid identical file names: must be in '_01','_02', ...,'_99'
         if ( $file_base_name.Length -gt $file_base_name_datetime.Length ) {
             $file_base_name_tail = $file_base_name.SubString($DATE_NORMALIZED_FILENAME_FORMAT_PWSH_LEN)
             
-            if ( $file_base_name_tail -match '^-(?<counter>\d+)$' ) {
+            if ( $file_base_name_tail -match '^_(?<counter>\d\d)$' ) {
                 
-                if ( ([int]($matches.counter)) -gt $MAX_SUFFIX_DATE_NORMALIZED_FILENAME ) {
+                $counter = [int]($matches.counter)
+                if ( $counter -eq 0 ) {
                     
-                    # The suffixe counter exists but it greater than 99
+                    # The suffixe counter exists but is _00: not allowed, the suffix must be omitted
                     return $false
                 }
             }
             else {
-                # The right part, after the date-time part, does not match a correct suffix counter in '-1','-2', ... '-n'
+                # The right part, after the date-time part, does not match a correct suffix counter in '_01','_02', ... '_99'
                 return $false
             }
         }
@@ -483,10 +485,10 @@ Rename a file with a date-normalized file name, based on a given date.
 
 The given date is typically the value of one of the date properties of the file: 'CreateDateExif','DateTimeOriginal','DateInFileName','LastWriteTime'
 
-The date-normalized filename pattern is  YYYY-MM-dd_HH-mm-ss[-n].<ext> 
+The date-normalized filename pattern is  YYYY-MM-dd_HH-mm-ss[_NN].<ext> 
   “YYYY-MM-dd_HH-mm-ss” is the date and time, in ISO 8601 format, accurate to the second, but with “-” and “_” as separators, in order to stay compatible with old file systems.
-  '-n' is an optionnal integer to avoid identical file names in the same directory. 
-       if n -gt $MAX_SUFFIX_DATE_NORMALIZED_FILENAME then an exception is thrown: too much photos having the same date/time.
+  '_NN' is an optionnal 2 digits integer to avoid identical file names in the same directory. 
+        if NN is greater than 99 then an exception is thrown: too much photos having the same date/time.
   '.<ext>' is the file name extension. It will be forced into lowercase if it is not already.
 
 Return the new file name if it has beeen renamed or '' if it was already correctly named.
@@ -494,9 +496,9 @@ Return the new file name if it has beeen renamed or '' if it was already correct
 .EXAMPLE
 Rename_DateNormalize ~/Documents/test_photos/IMG_20150706_182132_1.JPG [datetime]'2015-07-06 16:21:32'
 
-The file is renamed as '2015-07-06_16-21-32.jpg' or '2015-07-06_16-21-32-1.jpg' (-2 -3 ...) if '2015-07-06_16-21-32.jpg' already existed.
+The file is renamed as '2015-07-06_16-21-32.jpg' or '2015-07-06_16-21-32_01.jpg' (or _02 or _03 ... if '2015-07-06_16-21-32.jpg' already existed.)
 
-The new name is returned: '2015-07-06_16-21-32.jpg' or '2015-07-06_16-21-32-1.jpg'...
+The new name is returned: '2015-07-06_16-21-32.jpg' or '2015-07-06_16-21-32_01.jpg'...
 .EXAMPLE
 To rename the file to a date-normalized format, with the date found in its name:
 
@@ -505,9 +507,11 @@ $date_time = Get_DateInFileName $file_path
 if ( $null -eq $date_time) { throw 'No date in file name' }
 Rename_DateNormalize $file_path $date_time
 
-The 'IMG_20160109_111358_1.jpg' is renamed as '2016-01-09_11-13-58.jpg' or '2016-01-09_11-13-58-1.jpg' (or -2,-3,...) if '2016-01-09_11-13-58.jpg' already existed.
+The 'IMG_20160109_111358_1.jpg' is renamed as '2016-01-09_11-13-58.jpg' or '2016-01-09_11-13-58_01.jpg' (or _02 or _03 ... if '2016-01-09_11-13-58.jpg' already existed.)
 
-The new name is returned: '2016-01-09_11-13-58.jpg' or '2016-01-09_11-13-58-1.jpg'...
+Return:
+=> The new name if the file was successfully renamed: '2016-01-09_11-13-58.jpg' (or '2016-01-09_11-13-58_01.jpg'...)
+=> or '' if the file name was already ok: date-normalized base on the given date.
 #>
 [CmdletBinding()]
     param (
@@ -534,25 +538,25 @@ The new name is returned: '2016-01-09_11-13-58.jpg' or '2016-01-09_11-13-58-1.jp
         # New extension of the file
         $new_ext = $file.Extension.ToLower()
 
-        # Compute the suffix '-n' of the file base name, if required, i.e. if another file already exists with this new file name
-        For ($n = 0; $n -lt 100; $n++) {
-            $suffix = ($n -eq 0 ) ? '':('-'+$n)  # '', '-1', '-2', ...,'-99' 
+        # Compute the suffix '_NN' of the file base name, if required, i.e. if another file already exists with this new file name
+        foreach ( $n in 0..100 ) {
+            $suffix = ($n -eq 0 ) ? '' : ("_{0,2:d2}" -f $n)        # '', '_01', '_02', ...,'_99' 
             
             # New name of the file
             $new_name = $new_base_name_left + $suffix + $new_ext
             
-            # If the file name is already this new name then exit ok (return)
+            # If the file name is already this new name then exit ok (return '')
             if ($file.Name -ceq $new_name ) {
                 Return ''
             }
 
-            # If no other file exists with this new name, then ok the suffix -n is found
+            # If NO other file exists with this new name, then ok the suffix _NN is found
             if ( -not (Test-Path (Join-Path $file.DirectoryName $new_name)) ) {
                 break
             }
         }
-        if ( $n -eq $MAX_SUFFIX_DATE_NORMALIZED_FILENAME ) {
-            throw "Too much files with the same date-normalized name. -${MAX_SUFFIX_DATE_NORMALIZED_FILENAME} is the maximum counter suffix: '${LiteralPath}'"
+        if ( $n -gt 99  ) {
+            throw "Too much files with the same date-normalized name. _99 is the maximum counter suffix: '${LiteralPath}'"
         }
 
         # Rename the file
@@ -1226,172 +1230,6 @@ $photos_list = Import_Clixml_CalculatedData 'nostrucs'
 }
 
  
-function Get_PhotoDir_Data {
-<#
-.SYNOPSIS
-Get some data for every photo files in a photo directory.
-.DESCRIPTION
-Get some data for every photo files in a directory.
-
-Return an [ArrayList] of 
-    [PSCustomObject]@{
-        FullName          = [string]...          # full path of the file
-        FolderName        = [string]...          # Parent directory Name
-        Name              = [string]...          # file name
-        Extension         = [string]...          # Extension of the file name
-        Hash              = [string]...          # Hash of the file 
-        CreateDateExif    = [DateTime]...        # 'CreateDate exif tag if it exists,
-        DateTimeOriginal  = [DateTime]...        # 'DateTimeOriginal exif tag if it exists,
-        DateInFileName    = [DateTime]...        # The date that may appear in the file base name. See function Get_DateInFileName
-        LastWriteTime     = [DateTime]...        # The last write time (a.k.a. last modify date) of the file . See function Get-FileLastWriteTime
-    }
-
-Throw an exception if the photo directory does not exist.
-.NOTES
-PREREQUISITE: 
-ExifTool by Phil Harvey (https://exiftool.org/) must be installed and its directory must be in the PATH environment variable.
-.EXAMPLE
-$photo_list = [ArrayList]@()
-Get_PhotoDir_Data $photo_dir ([ref]$photo_list)
-#>
-[CmdletBinding()]
-    param (
-        # The directory to scan, where are the photo files
-        [Parameter(Mandatory, Position = 0)]
-        [string]$photo_dir,
-
-        # Calculated data to export
-        [Parameter(Mandatory, Position = 1)]
-        [ref][ArrayList]$Result_list,
-
-        # Do no process the subdirectories
-        [switch]$no_recurse,
-        
-        # Do not compute the file hash
-        [switch]$no_hash
-        
-    )
-    begin {
-
-        # Script block to add to the result ArrayList the new [PSCustomObject] for the current file
-        $Add_photo_data_entry_script_block = {
-            $DateInFileName = Get_DateInFileName $FullName
-            $file = Get-Item $FullName 
-            $new_photo_dates_obj = [PSCustomObject]@{
-                FullName            = $FullName
-                FolderName          = $file.Directory.Name
-                Name                = $file.Name
-                Extension           = $file.Extension
-                Hash                = if ( $no_hash ) { $null } else { (Get-FileHash $FullName).Hash }
-                CreateDateExif      = $CreateDateExif
-                DateTimeOriginal    = $DateTimeOriginal
-                DateInFileName      = $DateInFileName
-                LastWriteTime       = $file.LastWriteTime
-            }
-            $Result_list.value.Add( $new_photo_dates_obj ) 1>$null
-        }
-    }
-    process {
-
-        Write-Verbose "Getting photo files data from '${photo_dir}'..."
-        if ( -not (Test-Path $photo_dir -PathType Container) ) {
-            Throw "Get_PhotoDir_Data: the photo directory does not exist or is not a directory: '${photo_dir}' "
-        }
-
-        $Result_list.Value = [ArrayList]@() 
-
-        # Base variables to store the values parsed from the output lines of ExitTool command
-        $FullName = ''
-        $CreateDateExif = $null
-        $DateTimeOriginal = $null
-
-        # ExifTool command to get the file full path, CreateDate and DateTimeOriginal for every photo file of $photo_dir
-        # This is 16 times much faster than using Get-ChildItem and callin ExifTool for each file
-        if ( $no_recurse ) {
-            $exiftool_arg_list = @()
-        }
-        else {
-            $exiftool_arg_list = @( '-recurse' )
-        }
-        $exiftool_arg_list += @( '-s2', '-d', ${DATE_FORMAT_EXIFTOOL}, '-CreateDate', '-DateTimeOriginal', ${photo_dir} )
-        $temp_stdout_file = New-TemporaryFile
-        $temp_stderr_file = New-TemporaryFile
-        & exiftool $exiftool_arg_list 1>$temp_stdout_file 2>$temp_stderr_file
-        $exit_code = $LASTEXITCODE
-        If ( $exit_code -ne 0 ) {
-            Throw "Get_Photo_Dir_Data: ExifTool command failed with a non-zero exit code ${exit_code}. See error file ${temp_stderr_file}"
-        }
-        Remove-item $temp_stderr_file
-        Get-Content $temp_stdout_file | Foreach-Object {
-
-            $line = $_
-
-            <#  output lines example:
-            ...
-            ======== /home/denis/Documents/photo_sets/nostrucs/photo/2006/2006-04 Pâque + Ilan/P1070163.JPG
-            CreateDate: 2006-04-19 19:34:23
-            DateTimeOriginal: 2006-04-19 19:34:23
-            ======== /home/denis/Documents/photo_sets/nostrucs/photo/2006/2006-04 Pâque/100_1662.JPG
-            ======== /home/denis/Documents/photo_sets/nostrucs/photo/2006/2006-04 Pâque/P1070162.JPG
-            DateTimeOriginal: 2006-04-19 19:33:52
-                1 directories scanned
-               71 image files read
-            #>
-
-            if ( $line -like '======== *') {
-                
-                # File Path line
-
-                # Add the previous file data to the result list
-                if ( $FullName -ne '' ) {
-                    & $Add_photo_data_entry_script_block
-
-                    # reset current file values of ExifTool output lines parsing
-                    $FullName = ''
-                    $CreateDateExif = $null
-                    $DateTimeOriginal = $null
-                }
-                
-                # New file
-                $FullName = $line.substring(9)
-
-            }
-            elseif ( $line -like 'CreateDate: *') {
-                try {
-                    $CreateDateExif = [dateTime]::ParseExact( $line.substring(12), ${DATE_FORMAT_EXIFTOOL_PWSH}, $null)
-                }
-                catch {
-                    $CreateDateExif = $null
-                }
-            }
-            elseif ( $line -like 'DateTimeOriginal: *') {
-                try {
-                    $DateTimeOriginal = [dateTime]::ParseExact( $line.substring(18), ${DATE_FORMAT_EXIFTOOL_PWSH}, $null)
-                }
-                catch {
-                    $DateTimeOriginal = $null
-                }
-            }
-            else {
-                # 2 final lines: "    x directories scanned" then "   y image files read"
-                if ( ($line -notmatch '^[ ]*\d+ directories scanned$') -and ($line -notmatch '^[ ]*\d+ image files read$') ) {
-                    throw "Unexpected ExifTool output line: '$line'"
-                }
-                # Add the previous file data to the result list
-                if ( $FullName -ne '' ) {
-                    & $Add_photo_data_entry_script_block
-
-                    # reset current file values of ExifTool output lines parsing
-                    $FullName = ''
-                    $CreateDateExif = $null
-                    $DateTimeOriginal = $null
-                }
-            }
-        }
-        Write-Verbose "... $($result_list.Value.Count) photo files."
-    }
-}
-
 $Is_SortPhotoDateTools_Loaded = $true
 
 

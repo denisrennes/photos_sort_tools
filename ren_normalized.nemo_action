@@ -8,4 +8,4 @@ Selection=notnone
 #Extensions=nodirs;
 Mimetypes=image/*;video/*;
 Quote=single
-Separator=,
+Separator=;

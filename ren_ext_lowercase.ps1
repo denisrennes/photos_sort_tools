@@ -5,7 +5,7 @@ Rename files with a lowercase extension.
 Rename files with a lowercase extension.
 
 Some photo files thus become compliant with the normalized date-based file name model without changing their base name.
-This is because the date-normalized filename pattern is  "YYYY-MM-dd_HH-mm-ss[-n].<ext>", with .<ext> in lowercase.
+This is because the date-normalized filename pattern is  "YYYY-MM-dd_HH-mm-ss[_NN].<ext>", with .<ext> in lowercase.
 
 .NOTES
 ExifTool by Phil Harvey (https://exiftool.org/) may be automatically installed and its directory put in the PATH environment variable.

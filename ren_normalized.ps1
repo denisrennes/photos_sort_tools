@@ -2,12 +2,12 @@
 .SYNOPSIS
 Rename photo files with a date-normalized file name, based on the date properties of the file.
 .DESCRIPTION
-Rename photo files with a date-normalized file name, based on the date properties of the file.
+Rename photo files with a date-normalized file name, based on the date properties of the file. (See the function Rename_DateNormalize.)
 
-The date-normalized filename pattern is  YYYY-MM-dd_HH-mm-ss[-n].<ext> 
+The date-normalized filename pattern is  YYYY-MM-dd_HH-mm-ss[_NN].<ext> 
   “YYYY-MM-dd_HH-mm-ss” is the date and time, in ISO 8601 format, accurate to the second, but with “-” and “_” as separators, in order to stay compatible with old file systems.
-  '-n' is an optionnal integer to avoid identical file names in the same directory. 
-       if n -gt $MAX_SUFFIX_DATE_NORMALIZED_FILENAME then an exception is thrown: too much photos having the same date/time.
+  '_NN' is an optionnal integer to avoid identical file names in the same directory. 
+       if NN is greater than 99 then an exception is thrown: too much photos having the same date/time.
   '.<ext>' is the file name extension. It will be forced into lowercase if it is not already.
 
 The date properties of the photo file: 'CreateDateExif','DateTimeOriginal','DateInFileName','LastWriteTime'
@@ -96,17 +96,15 @@ function Compute_Planned_Name_Change {
 }
 
 
-
-
 # Load Sort-PhotoDateTools.ps1 (dot-sourcing call allows the 'module' to be in the same directory)
 if ( (-not (Test-Path variable:Is_SortPhotoDateTools_Loaded)) -or (-not $Is_SortPhotoDateTools_Loaded) ) {
     . (Join-Path $PSScriptRoot "Sort-PhotoDateTools.ps1")
 }
 
 # Check the argument $Photo_File_List.
-# The list can be provided as a single comma-separated string to handle Nemo file manager actions with multiple selections.
+# The list can be provided as a single semicolon-separated string to handle Nemo file manager actions with multiple selections.
 if ( $Photo_File_List.Count -eq 1 ) {
-    $Photo_File_List = $Photo_File_List -split ','
+    $Photo_File_List = $Photo_File_List -split ';'
 }
 # All files must exist and must belong to the same directory. Directories are not allowed.
 [List[System.IO.FileInfo]]$file_list = @( $Photo_File_List | ForEach-Object {

@@ -5,7 +5,7 @@ This operation is performed for each subfolder of the given folder, if applicabl
 .DESCRIPTION
 The folder's date range is calculated from its normalized name: "YYYY-MM blabla" or "YYYY-MM-DD blabla" or "YYYY-MM-DD(xd) blabla". (See function Get_DateRange_From_Normalized_Folder_Name.)
 
-The computed results are for the folder and for the exif or file dates: CreateDateExif, DateTimeOriginal, DateInFileName and LastWriteTime. (See function Get_PhotoDir_Data.)
+The computed results are for the folder and for the exif or file dates: CreateDateExif, DateTimeOriginal, DateInFileName and LastWriteTime. (See function Get_Directory_PhotoInfo.)
 
 Computed for the folder:
 * Number of photo files in this folder.
@@ -427,7 +427,7 @@ $global_main_has_subfolders = ($photo_subdir_list.Count -ge 2)
         # Display the list of the photo files data
         if( $List_Files ) {
 
-           $formated_table  = $PhotoInfo_List | Sort-Object -Property Name | 
+           $PhotoInfo_List | Sort-Object -Property Name | 
                 Select-Object   Name, 
                                 @{ Name='CreateDateExif';   Expression={ date_diff_ref_tostring $_.CreateDateExif   ($ref_date_prop -eq 'CreateDateExif')    ($ref_date_prop ? $_.$ref_date_prop : $null) } },
                                 @{ Name='DateTimeOriginal'; Expression={ date_diff_ref_tostring $_.DateTimeOriginal ($ref_date_prop -eq 'DateTimeOriginal')  ($ref_date_prop ? $_.$ref_date_prop : $null) } },
