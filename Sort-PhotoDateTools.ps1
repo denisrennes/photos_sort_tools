@@ -676,7 +676,7 @@ $photo_info_list.Count
 
         # CreateDateExif property
         try {
-            if ( $_.CreateDate -eq '-' ) {
+            if ( $_.CreateDate -in ('-','0000:00:00 00:00:00') ) {
                 $CreateDateExif = $null
             }
             else {
@@ -684,12 +684,12 @@ $photo_info_list.Count
             }
         }
         catch {
-            Throw "Incorrect `"CreateDate`" format returned by the ExifTool command: see `"SourceFile`": `"$($_.SourceFile)`" in '${Exiftool_output_file}'"
+            Throw "Incorrect `"CreateDate`" format returned by the ExifTool command: see `"SourceFile`": `"${FullName}`" in '${Exiftool_output_file}'"
         }
 
         # DateTimeOriginal property
         try {
-            if ( $_.DateTimeOriginal -eq '-' ) {
+            if ( $_.DateTimeOriginal -in ('-','0000:00:00 00:00:00') ) {
                 $DateTimeOriginal = $null
             }
             else {
@@ -697,7 +697,7 @@ $photo_info_list.Count
             }
         }
         catch {
-            Throw "Incorrect `"DateTimeOriginal`" format returned by the ExifTool command: see `"SourceFile`": `"$($_.SourceFile)`" in '${Exiftool_output_file}'"
+            Throw "Incorrect `"DateTimeOriginal`" format returned by the ExifTool command: see `"SourceFile`": `"${FullName}`" in '${Exiftool_output_file}'"
         }
 
         # Return the [PhotoInfo] object
