@@ -684,7 +684,7 @@ $photo_info_list.Count
             }
         }
         catch {
-            Throw "Incorrect `"CreateDate`" format returned by the ExifTool command: see `"SourceFile`": `"${FullName}`" in '${Exiftool_output_file}'"
+            Throw "Incorrect `"CreateDate`" format returned by the ExifTool command: see `"SourceFile`": `"${FullName}`" in '${temp_exiftool_stdout_file}'"
         }
 
         # DateTimeOriginal property
@@ -697,7 +697,7 @@ $photo_info_list.Count
             }
         }
         catch {
-            Throw "Incorrect `"DateTimeOriginal`" format returned by the ExifTool command: see `"SourceFile`": `"${FullName}`" in '${Exiftool_output_file}'"
+            Throw "Incorrect `"DateTimeOriginal`" format returned by the ExifTool command: see `"SourceFile`": `"${FullName}`" in '${temp_exiftool_stdout_file}'"
         }
 
         # Return the [PhotoInfo] object
@@ -774,11 +774,11 @@ $photo_info_list.Count
     # Parse the output lines of an Exiftool command line which read the exif tags 'CreateDateExif' and 'DateTimeOriginal' and return [PhotoInfo] objects.
     $result_list | ForEach-Object {
         
-        $FullName = $_.SourceFile
+        $fullname = $_.SourceFile
 
         # CreateDateExif property
         try {
-            if ( $_.CreateDate -eq '-' ) {
+            if ( $_.CreateDate -in ('-','0000:00:00 00:00:00') ) {
                 $CreateDateExif = $null
             }
             else {
@@ -786,12 +786,12 @@ $photo_info_list.Count
             }
         }
         catch {
-            Throw "Incorrect `"CreateDate`" format returned by the ExifTool command: see `"SourceFile`": `"$($_.SourceFile)`" in '${Exiftool_output_file}'"
+            Throw "Incorrect `"CreateDate`" format returned by the ExifTool command: see `"SourceFile`": `"${fullname}`" in '${temp_exiftool_stdout_file}'"
         }
 
         # DateTimeOriginal property
         try {
-            if ( $_.DateTimeOriginal -eq '-' ) {
+            if ( $_.DateTimeOriginal -in ('-','0000:00:00 00:00:00') ) {
                 $DateTimeOriginal = $null
             }
             else {
@@ -799,11 +799,11 @@ $photo_info_list.Count
             }
         }
         catch {
-            Throw "Incorrect `"DateTimeOriginal`" format returned by the ExifTool command: see `"SourceFile`": `"$($_.SourceFile)`" in '${Exiftool_output_file}'"
+            Throw "Incorrect `"DateTimeOriginal`" format returned by the ExifTool command: see `"SourceFile`": `"${fullname}`" in '${temp_exiftool_stdout_file}'"
         }
 
         # Return the [PhotoInfo] object
-        [PhotoInfo]::New( $FullName, $CreateDateExif, $DateTimeOriginal, $Compute_Hash )
+        [PhotoInfo]::New( $fullname, $CreateDateExif, $DateTimeOriginal, $Compute_Hash )
 
     }
 
