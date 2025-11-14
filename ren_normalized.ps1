@@ -182,6 +182,7 @@ Do {
                         @{ Name='DateTimeOriginal'; Expression={ date_diff_ref_tostring $_.DateTimeOriginal ($ref_date_prop -eq 'DateTimeOriginal')  ($ref_date_prop ? $_.$ref_date_prop : $null) } },
                         @{ Name='DateInFileName';   Expression={ date_diff_ref_tostring $_.DateInFileName   ($ref_date_prop -eq 'DateInFileName')    ($ref_date_prop ? $_.$ref_date_prop : $null) } },
                         @{ Name='LastWriteTime';    Expression={ date_diff_ref_tostring $_.LastWriteTime    ($ref_date_prop -eq 'LastWriteTime')     ($ref_date_prop ? $_.$ref_date_prop : $null) } },
+                        CamModel,
                         @{ Name='Rename_Or_Skip';   Expression={ Compute_Planned_Name_Change $_ $ref_date_prop $Force_Already_Normalized } }
         | Format-Table -AutoSize | Out-String -Stream 
         

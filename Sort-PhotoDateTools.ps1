@@ -123,6 +123,8 @@ $DATE_NORMALIZED_FILENAME_FORMAT_PWSH_LEN = 19      # There could be escape char
 # The maximum number of seconds that can differ between two dates for them to be considered identical.
 $MAX_SECONDS_IDENTICAL_DATE_DIFF = 1
 
+# Camera maker short name list, to simplify CamModel field computing (See function Build_CamModel)
+$CAMERA_MAKER_SHORT_NAME_LIST = ( 'APPLE', 'CANON', 'KODAK', 'ELITE', 'NIKON', 'NINTENDO', 'OLYMPUS', 'PANASONIC', 'PENTAX', 'SAMSUNG', 'SONY', 'WIKO', 'XIAOMI' )
 
 <#
 .SYNOPSIS
@@ -567,9 +569,73 @@ Return:
 }
 
 
+function Build_CamModel {
+<#
+.SYNOPSIS
+Build the field CamModel from teh Exif tags Maker and Model
+.DESCRIPTION
+Launch the ExifTool command with a given directory or files arguments and return a list of [PhotoInfo].
+.EXAMPLE
+Exiftool_Command_To_PhotoInfo_List $Directory_FullName -Recurse ${Recurse} -Compute_Hash $Compute_Hash
+
+Launch the ExifTool command to get the date Exif tags for the photo files in the directory and return a list of [PhotoInfo] 
+.EXAMPLE
+Exiftool_Command_To_PhotoInfo_List ($file_list.FullName) -Recurse $false -Compute_Hash $Compute_Hash
+
+Launch the ExifTool command to get the date Exif tags for the files and return a list of [PhotoInfo] 
+#>
+[CmdletBinding()]
+    param(
+        # Camera maker, usually from the Exif tag 'Make'
+        [Parameter(Mandatory,Position=0)]
+        [string]$Maker,
+
+        # Camera model, usually from the Exif tag 'Model'
+        [Parameter(Mandatory,Position=1)]
+        [string]$Model
+    )
+
+    # Empty $Maker and/or $Model ('-' returned by the exiftool command)
+    if ( $Maker -eq '-' ) { $Maker = '' }
+    if ( $Model -eq '-' ) { $Model = '' }
+    if ( (-not $Maker) -or (-not $Model) ) {
+        # Return the only non-empty tag, if any, else return ''. Usually if one is empty then the other is empty too.
+        $CamModel = $Maker + $Model
+        return $CamModel
+    }
+
+    foreach ( $maker_short in $CAMERA_MAKER_SHORT_NAME_LIST ) {
+        if ( $Maker -match $maker_short ) {
+
+            if ( $Model -like "${maker_short}*" ) {
+
+                # The Maker field contains a maker short name from the $CAMERA_MAKER_SHORT_NAME_LIST, and the Model field starts with this maker short name
+                # The returned CamModel string will be the Model (However the maker short name at the start will be forced to uppercase)
+                $CamModel = $maker_short.ToUpper()
+                if ( $Model.Length -gt $maker_short.Length ) { $CamModel += $Model.Substring($maker_short.Length) }
+                return $CamModel
+            }
+            else {
+
+                # The Maker field contains a maker short name from the $CAMERA_MAKER_SHORT_NAME_LIST, but the Model field does NOT start with this maker short name
+                # The returned CamModel string will be the maker short name, followed by the Model
+                $CamModel = $maker_short.ToUpper() + ' ' + $Model
+                return $CamModel
+            }
+        }
+
+    }
+
+    # The Maker field does not contain a maker short name from the $CAMERA_MAKER_SHORT_NAME_LIST
+    # The returned CamModel string will be the Maker field, followed by the Model
+    $CamModel = $Maker.ToUpper() + ' ' + $Model
+    return $CamModel
+
+}
+
 # PhotoInfo class, to store exif date/times and/or hash code of a photo file
 Class PhotoInfo {  
-    [String]                $FullName                   # full path of the file
+    [string]                $FullName                   # full path of the file
     [string]                $Directory                  # directory Name
     [string]                $Name                       # file name
     [string]                $Extension                  # Extension of the file name
@@ -579,12 +645,12 @@ Class PhotoInfo {
     [Nullable[DateTime]]    $DateTimeOriginal           # 'DateTimeOriginal exif tag if it exists, else $null
     [Nullable[DateTime]]    $DateInFileName             # The date that may appear in the file base name, else $Null. See function Get_DateInFileName
     [Nullable[DateTime]]    $LastWriteTime              # The last write time (a.k.a. "Modified") of the file
+    [string]                $CamModel                   # Camera maker/model
 
     # Constructor: only requires FullName, CreateDateExif and DateTimeOriginal. The other properties are computed by the constructor.
-    PhotoInfo( [string]$FullName, [Nullable[DateTime]]$CreateDateExif, [Nullable[DateTime]]$DateTimeOriginal, [bool]$Compute_The_Hash) { 
+    PhotoInfo( [string]$FullName, [Nullable[DateTime]]$CreateDateExif, [Nullable[DateTime]]$DateTimeOriginal, [String]$CamModel, [bool]$Compute_The_Hash) { 
         $file = Get-Item -LiteralPath $FullName -ErrorAction Stop
         if ( $file -isnot [System.IO.FileInfo] ) { throw "Not a file: '$FullName'" }
-
         $this.FullName                      = $file.FullName
         $this.Directory                     = $file.Directory
         $this.Name                          = $file.Name
@@ -595,6 +661,7 @@ Class PhotoInfo {
         $this.DateTimeOriginal              = $DateTimeOriginal
         $this.DateInFileName                = Get_DateInFileName $this.FullName
         $this.LastWriteTime                 = $file.LastWriteTime
+        $this.CamModel                      = $CamModel
      }
 
 }
@@ -633,7 +700,7 @@ Launch the ExifTool command to get the date Exif tags for the files and return a
         [bool]$Compute_Hash
     )
 
-    # ExifTool command arguments to get the file full path, CreateDate and DateTimeOriginal exif date/time for every photo file
+    # ExifTool command arguments to get the file full path and the exif tags CreateDate, DateTimeOriginal, Make and Model for every photo file
     if ( $Recurse ) {
         $exiftool_arg_list = @( '-recurse' )
     }
@@ -641,7 +708,7 @@ Launch the ExifTool command to get the date Exif tags for the files and return a
         $exiftool_arg_list = @( )
     }
     # '-json' to obtain a json formatted result, '-forcePrint' to always have the exif tags printed, even for non-existing tags: "CreateDate": "-",  
-    $exiftool_arg_list += @( '-json', '-forcePrint', '-dateFormat', ${DATE_FORMAT_EXIFTOOL}, '-CreateDate', '-DateTimeOriginal' ) + $exiftool_FILE_arg
+    $exiftool_arg_list += @( '-json', '-forcePrint', '-dateFormat', ${DATE_FORMAT_EXIFTOOL}, '-CreateDate', '-DateTimeOriginal', '-Make', '-Model' ) + $exiftool_FILE_arg
     
     $temp_exiftool_stdout_file = New-TemporaryFile      # it will be a json file
     $temp_exiftool_stderr_file = New-TemporaryFile
@@ -703,8 +770,11 @@ Launch the ExifTool command to get the date Exif tags for the files and return a
             Throw "Incorrect `"DateTimeOriginal`" format returned by the ExifTool command: see `"SourceFile`": `"${fullname}`" in '${temp_exiftool_stdout_file}'"
         }
 
+        # Build the camera modle from teh exif tags Make and Model
+        $CamModel = Build_CamModel $_.Make $_.Model
+
         # Return the [PhotoInfo] object
-        [PhotoInfo]::New( $fullname, $CreateDateExif, $DateTimeOriginal, $Compute_Hash )
+        [PhotoInfo]::New( $fullname, $CreateDateExif, $DateTimeOriginal, $CamModel, $Compute_Hash )
     }
 }
 
