@@ -1,11 +1,10 @@
 [Nemo Action]
-Name=ren__normalized__Force__Files
+Name=ren__normalized__Force__1dir
 Comment=Rename photo files date-normalized, even if already date-normalized
 Exec=pwsh -NoLogo -NoExit -File '/home/denis/Documents/photos_sort_tools/ren_normalized.ps1' -Force_Already_Normalized %F
 Terminal=true
 Icon-Name=folder-recent
-Selection=notnone
-#Extensions=nodirs;
-Mimetypes=image/*;video/*;
+Selection=s
+Extensions=dir;
 Quote=single
 Separator=;

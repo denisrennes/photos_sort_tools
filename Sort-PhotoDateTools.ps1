@@ -849,7 +849,7 @@ $photo_info_list.Count
     [List[System.IO.FileInfo]]$file_list = @( $Photo_File_List | ForEach-Object {
         $file = Get-Item $_ -ErrorAction Stop
         if ( $file -isnot [System.IO.FileInfo] ) {
-            throw "Incorrect Photo_File_List argument: this is not a file: '${$_}'"
+            throw "Incorrect Photo_File_List argument: this is not a file: '$_'"
         }
         $file
     } )

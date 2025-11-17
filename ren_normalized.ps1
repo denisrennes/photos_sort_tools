@@ -24,6 +24,7 @@ using namespace System.Collections.Generic
     param (
         # The photo files to be renamed with a date-normalized file name. All files must belong to the same Directory.
         # The list can be provided as a single comma-separated string to handle Nemo file manager actions with multiple selections.
+        # A single directory can also be given: its contained files will be processed
         [Parameter(Mandatory, Position = 0)]
         [string[]]$Photo_File_List,
 
@@ -106,12 +107,21 @@ if ( (-not (Test-Path variable:Is_SortPhotoDateTools_Loaded)) -or (-not $Is_Sort
 if ( $Photo_File_List.Count -eq 1 ) {
     $Photo_File_List = $Photo_File_List -split ';'
 }
+# If this is a single directory argument, then process its contained files
+if ( $Photo_File_List.Count -eq 1 ) {
+    $photo_file = $Photo_File_List[0]
+    try { $file = Get-Item $photo_file -ErrorAction Stop }
+    catch { throw "This file does not exist: '${photo_file}'" }
+    if ( $file -is [System.IO.DirectoryInfo] ) {
+        $Photo_File_List = @( Get-ChildItem -File $photo_file )
+    }
+}
 # All files must exist and must belong to the same directory. Directories are not allowed.
 [List[System.IO.FileInfo]]$file_list = @( $Photo_File_List | ForEach-Object {
     try { $file = Get-Item $_ -ErrorAction Stop }
-    catch { throw "This file does not exist: '${$_}'" }
+    catch { throw "This file does not exist: '$_'" }
     if ( $file -isnot [System.IO.FileInfo] ) {
-        throw "Incorrect Photo_File_List argument: this is not a file: '${$_}'"
+        throw "Incorrect Photo_File_List argument: this is not a file: '$_'"
     }
     $file
 } )

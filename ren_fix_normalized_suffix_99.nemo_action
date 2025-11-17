@@ -1,0 +1,10 @@
+[Nemo Action]
+Name=ren__fix__normalized__suffix__99__Recurse
+Comment=Rename files with -1,-2,... suffixes to _01,_02... suffixes -
+Exec=pwsh -NoLogo -NoExit -File '/home/denis/Documents/photos_sort_tools/ren_fix_normalized_suffix_99.ps1' %F -Recurse
+Terminal=true
+Icon-Name=folder-recent
+Selection=s
+Extensions=dir;
+Quote=single
+
