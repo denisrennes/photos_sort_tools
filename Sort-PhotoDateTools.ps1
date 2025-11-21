@@ -103,6 +103,10 @@ Write-Verbose "ok, ExifTool version ${exiftool_version} is available in '${exift
 # List of file extensions that can be written by ExifTool
 $EXIFTOOL_WRITABLE_EXTENSION_LIST = ('.360','.3g2','.3gp','.aax','.ai','.arq','.arw','.avif','.cr2','.cr3','.crm','.crw','.cs1','.dcp','.dng','.dr4','.dvb','.eps','.erf','.exif','.exv','.f4a','.f4v','.fff','.flif','.gif','.glv','.gpr','.hdp','.heic','.heif','.icc','.iiq','.ind','.insp','.jng','.jp2','.jpeg','.jpg','.jxl','.lrv','.m4a','.m4v','.mef','.mie','.mng','.mos','.mov','.mp4','.mpo','.mqv','.mrw','.nef','.nksc','.nrw','.orf','.ori','.pbm','.pdf','.pef','.pgm','.png','.ppm','.ps','.psb','.psd','.qtif','.raf','.raw','.rw2','.rwl','.sr2','.srw','.thm','.tiff','.vrd','.wdp','.webp','.x3f','.xmp')
 
+# Non-photo file extensions: extensions of files to exclude from photo processing (Exiftool commands, Get-CHildItem, etc.) 
+$NOT_PHOTO_EXTENSION_LIST = ( 'json','html','db','jbf','db@SynoEAStream','jpg@SynoEAStream','pdf@SynoEAStream' )
+
+
 # Default date format for display, output
 $DEFAULT_DATE_FORMAT_PWSH = 'yyyy-MM-dd_HH-mm-ss'
 
@@ -1092,7 +1096,8 @@ $photo_dir_count = Count_photo_dir $photo_dir
         Write-Verbose "Counting photo  files in '${photo_dir}'..."
         $photo_dir_count = 0
         if ( Test-Path $photo_dir -PathType Container ) {
-            $photo_dir_count = (Gci_Photo_Files $photo_dir).Count
+            $photo_files = @( Gci_Photo_Files $photo_dir )
+            $photo_dir_count = $photo_files.Count
         }
         Write-Verbose "... ${photo_dir_count} photo files."
         return $photo_dir_count
