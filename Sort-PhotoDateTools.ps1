@@ -1051,23 +1051,12 @@ Result:  $minmax_dates.Min_date = [DateTime]"2015-01-01 00:00:00"
 }  
    
 
-$gci_photo_dir_ScriptBlock = { 
-# Script Block to get the photo files from a directory, excluding some file names and path.
-Param(
-        [string]$photo_dir
-    )
-    # .json and .html files are excluded because they are present in Google Takeout photo exports but they are not photo files.
-    # *@SynoEAStream files are excluded because they are present in Synology photo shares but they are not photo files.
-    Get-ChildItem -LiteralPath $photo_dir -Recurse -File -Exclude ('*.json','*.html','*@SynoEAStream','*.db','*.jbf') | Where-Object { $_.FullName -notlike '*@eaDir*' }
-}
-
 function Gci_Photo_Files {
 <#
 .SYNOPSIS
 Get the photo files of a directory.
 .DESCRIPTION
 Get the photo files of a directory.
-
 .EXAMPLE
 
 #>
@@ -1075,15 +1064,10 @@ Get the photo files of a directory.
 param (
     # The directory to scan, where are the photo files
     [Parameter(Mandatory, Position = 0)]
-    [string]$Photo_Directory,
-
-    # Process the subdirectories
-    [Parameter(Mandatory)]
-    [bool]$Recurse
+    [string]$Photo_Directory
 )
         
-    Get-ChildItem -LiteralPath $Photo_Directory -Recurse:${Recurse} -File | Where-Object { $_.FullName -notlike '*@eaDir*' }
-
+    Get-ChildItem -LiteralPath $Photo_Directory -Recurse -File -Exclude ('*.json','*.html','*@SynoEAStream','*.db','*.jbf') | Where-Object { $_.FullName -notlike '*@eaDir*' }
 
 }
 
@@ -1095,8 +1079,6 @@ Count the photo/video files in a directory.
 .DESCRIPTION
 Count the photo/video files in a directory.
 Return 0 if the directory does not exist.
-.NOTES
-Uses the script block $gci_photo_dir_ScriptBlock
 .EXAMPLE
 $photo_dir_count = Count_photo_dir $photo_dir
 #>
@@ -1110,7 +1092,7 @@ $photo_dir_count = Count_photo_dir $photo_dir
         Write-Verbose "Counting photo  files in '${photo_dir}'..."
         $photo_dir_count = 0
         if ( Test-Path $photo_dir -PathType Container ) {
-            $photo_dir_count = (& $gci_photo_dir_ScriptBlock $photo_dir).Count
+            $photo_dir_count = (Gci_Photo_Files $photo_dir).Count
         }
         Write-Verbose "... ${photo_dir_count} photo files."
         return $photo_dir_count
