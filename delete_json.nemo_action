@@ -1,0 +1,11 @@
+[Nemo Action]
+Name=Delete ALL .json from directory
+Comment=Delete all *.json files from %P
+Exec='/home/denis/Documents/photos_sort_tools/delete_json.sh' %P
+Quote=single
+Terminal=true
+Icon-Name=folder-recent
+Selection=s
+Extensions=json;
+Separator=,
+
