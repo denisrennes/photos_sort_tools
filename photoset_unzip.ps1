@@ -111,7 +111,7 @@ Foreach ( $zip_file in $zip_files ) {
 # Results
 Out normal "Counting the extracted photos..." -NoNewLine
 $photo_count = Count_photo_dir $photo_dir
-Out normal ": $($photo_list.count)"
+Out normal ": ${photo_count}"
 
 
 # top-level try-catch to display detailed error messages 

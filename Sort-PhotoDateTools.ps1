@@ -104,8 +104,13 @@ Write-Verbose "ok, ExifTool version ${exiftool_version} is available in '${exift
 $EXIFTOOL_WRITABLE_EXTENSION_LIST = ('.360','.3g2','.3gp','.aax','.ai','.arq','.arw','.avif','.cr2','.cr3','.crm','.crw','.cs1','.dcp','.dng','.dr4','.dvb','.eps','.erf','.exif','.exv','.f4a','.f4v','.fff','.flif','.gif','.glv','.gpr','.hdp','.heic','.heif','.icc','.iiq','.ind','.insp','.jng','.jp2','.jpeg','.jpg','.jxl','.lrv','.m4a','.m4v','.mef','.mie','.mng','.mos','.mov','.mp4','.mpo','.mqv','.mrw','.nef','.nksc','.nrw','.orf','.ori','.pbm','.pdf','.pef','.pgm','.png','.ppm','.ps','.psb','.psd','.qtif','.raf','.raw','.rw2','.rwl','.sr2','.srw','.thm','.tiff','.vrd','.wdp','.webp','.x3f','.xmp')
 
 # Non-photo file extensions: extensions of files to exclude from photo processing (Exiftool commands, Get-CHildItem, etc.) 
-$NOT_PHOTO_EXTENSION_LIST = ( 'json','html','db','jbf','db@SynoEAStream','jpg@SynoEAStream','pdf@SynoEAStream' )
+$NON_PHOTO_EXTENSION_LIST = ( '.json','.html','.db','.jbf','.db@SynoEAStream','.jpg@SynoEAStream','.pdf@SynoEAStream' )
 
+# Get-CHildItem arguments for excluded file extensions, i.e. non-photo files: ( '*.json', '*.html', ... )
+$NOT_PHOTO_EXCLUDE_EXTENSION_GCI_ARGS = @( $NON_PHOTO_EXTENSION_LIST | ForEach-Object { '*' + $_ } )
+
+# Exiftool arguments for excluded file extensions, i.e. non-photo files: ( ''ext', '.json', '--ext', '.html', ... )
+$NOT_PHOTO_EXCLUDE_EXTENSION_EXIFTOOL_ARGS = @( $NON_PHOTO_EXTENSION_LIST | ForEach-Object { '--ext'; $_ } )
 
 # Default date format for display, output
 $DEFAULT_DATE_FORMAT_PWSH = 'yyyy-MM-dd_HH-mm-ss'
@@ -712,7 +717,7 @@ Launch the ExifTool command to get the date Exif tags for the files and return a
         $exiftool_arg_list = @( )
     }
     # '-json' to obtain a json formatted result, '-forcePrint' to always have the exif tags printed, even for non-existing tags: "CreateDate": "-",  
-    $exiftool_arg_list += @( '-json', '-forcePrint', '-dateFormat', ${DATE_FORMAT_EXIFTOOL}, '-CreateDate', '-DateTimeOriginal', '-Make', '-Model' ) + $exiftool_FILE_arg
+    $exiftool_arg_list += ( '-json', '-forcePrint', '-dateFormat', ${DATE_FORMAT_EXIFTOOL} ) + $NOT_PHOTO_EXCLUDE_EXTENSION_EXIFTOOL_ARGS + ('-CreateDate', '-DateTimeOriginal', '-Make', '-Model') + $exiftool_FILE_arg
     
     $temp_exiftool_stdout_file = New-TemporaryFile      # it will be a json file
     $temp_exiftool_stderr_file = New-TemporaryFile
@@ -1060,9 +1065,7 @@ function Gci_Photo_Files {
 .SYNOPSIS
 Get the photo files of a directory.
 .DESCRIPTION
-Get the photo files of a directory.
-.EXAMPLE
-
+Get the photo files of a directory, excluding non-photo file extensions
 #>
 [CmdletBinding()]
 param (
@@ -1071,7 +1074,7 @@ param (
     [string]$Photo_Directory
 )
         
-    Get-ChildItem -LiteralPath $Photo_Directory -Recurse -File -Exclude ('*.json','*.html','*@SynoEAStream','*.db','*.jbf') | Where-Object { $_.FullName -notlike '*@eaDir*' }
+    Get-ChildItem -LiteralPath $Photo_Directory -Recurse -File -Exclude $NOT_PHOTO_EXCLUDE_EXTENSION_GCI_ARGS
 
 }
 
