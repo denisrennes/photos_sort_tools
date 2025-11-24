@@ -67,7 +67,7 @@ The file 'IMG_2015-07-06_18-21-32.jpg' is not renamed because it is not an old d
     param (
         # The file object
         [Parameter(Mandatory, ValueFromPipeline, Position = 0)]
-        [System.IO.FileSystemInfo]$File
+        [System.IO.FileInfo]$File
     )
     process {
        

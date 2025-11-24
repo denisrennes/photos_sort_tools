@@ -20,51 +20,85 @@ using namespace System.Collections.Generic
 
         # Process the subdirectories
         [Parameter()]
-        [bool]$Recurse = $true
+        [switch]$Recurse
     )
 
 # top-level try-catch to display detailed error messages 
 try {
 
-    # Dir1
-    $export_xml_file = join-path $Dir1 '.hash_export.xml'
-    if ( Test-Path $export_xml_file ) {
-        Write-Host "Importing Hash for files in '$Dir1'..."
-        $files1 = Import-Clixml $export_xml_file
-    }
-    else {
-        Write-Host "Computing Hash for files in '$Dir1' (recurse:${recurse})..."
-        $dir_len = $Dir1.Length
-        $files1 = gci -Recurse:$Recurse -file $Dir1 | Select-Object FullName, @{n='RelativeName';e={$_.FullName.Substring($dir_len)}}, @{n='Hash';e={(Get-FileHash $_).Hash}}
-        $files1 | Export-Clixml $export_xml_file
-    }
-    Write-host " '$Dir1': $($files1.Count) computed hash"
+Set-StrictMode -Version 3.0
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 
-    if ( $Dir2 ) {
+# Load Sort-PhotoDateTools.ps1 (dot-sourcing call allows the 'module' to be in the same directory)
+if ( (-not (Test-Path variable:Is_SortPhotoDateTools_Loaded)) -or (-not $Is_SortPhotoDateTools_Loaded) ) {
+    . (Join-Path $PSScriptRoot "Sort-PhotoDateTools.ps1")
+}
 
-        # Dir2
-        $export_xml_file = join-path $Dir2 '.hash_export.xml'
-        if ( Test-Path $export_xml_file ) {
-            Write-Host "Importing Hash for files in '$Dir2'..."
-            $files2 = Import-Clixml $export_xml_file
+
+# Check Dir1
+$file_o = Get-Item $Dir1
+if ( $file_o -isnot [System.IO.DirectoryInfo] ) {
+    throw "This directory does not exist: '${Dir1}'"
+}
+$Dir1 = $file_o.FullName
+
+
+# Get [HashInfo] list for $Dir1
+[List[HashInfo]]$files1 = @( Get_Directory_Photo_Hash_Export $Dir1 -Recurse:${Recurse} )
+Out normal " '$Dir1': $($files1.Count) computed hash"
+
+if ( $Dir2 ) {
+
+    # Check Dir2
+    $file_o = Get-Item $Dir2
+    if ( $file_o -isnot [System.IO.DirectoryInfo] ) {
+        throw "This directory does not exist: '${Dir2}'"
+    }
+    $Dir2 = $file_o.FullName
+
+    # Get [HashInfo] list for $Dir2
+    [List[HashInfo]]$files2 = @( Get_Directory_Photo_Hash_Export $Dir2 -Recurse:${Recurse} )
+    Out normal " '$Dir2': $($files2.Count) computed hash"
+
+    # Compare $Dir2 and $Dir1 
+    Out normal "Computing files having the same hash in both directories..."
+    $file2_same_hash_list = @( compare-object $files2  $files1 -Property Hash -ExcludeDifferent -IncludeEqual -Passthru)
+    Out normal "`$file2_same_hash_list = identical Hash: $($file2_same_hash_list.Count)"
+
+    # Delete files in $Dir2 having the same hash than a file in $Dir1?
+    if ( $file2_same_hash_list.Count -ne 0 ) {
+
+        # Display the files from $Dir2 having the same hash than a file in $Dir1
+        Out normal ''
+        Out normal "Files from `"${Dir2}`" having the same hash than a file in `"${Dir1}`":"
+        $file2_same_hash_list.RelativePath | Out normal
+        
+        # User input: Confirm deleting files in $Dir2 having the same hash than a file in $Dir1?
+        $input_default = 'n'
+        Do {
+            Out normal -NoNewLine "Confirm to delete the above files from `"${Dir2}`" having the same hash than a file in `"${Dir1}`" [y/n(default)]: " -Highlight_Text $Dir2
+            $user_input = Read-Host
+            if (-not $user_input ) { $user_input = $input_default }
+        } Until ( $user_input -in ('y','n') ) 
+
+        if ( $user_input -eq 'n' ) {
+            throw "Canceled: the user chose not to delete the files."
         }
-        else {
-            Write-Host "Computing Hash for files in '$Dir2' (recurse:${recurse})..."
-            $dir_len = $Dir2.Length
-            $files2 = gci -Recurse:$Recurse -file $Dir2 | Select-Object FullName, @{n='RelativeName';e={$_.FullName.Substring($dir_len)}}, @{n='Hash';e={(Get-FileHash $_).Hash}}
-            $export_xml_file = join-path $Dir2 '.hash_export.xml'
-            $files2 | Export-Clixml $export_xml_file
+
+        # Delete the files from Dir2
+        $file2_same_hash_list.RelativePath | ForEach-Object {
+            $file_fullname = Join-Path $Dir2 $_
+            Out normal -NoNewLine "Deleting `"${file_fullname}`"... " -Highlight_Text ${file_fullname}
+            Remove-Item $file_fullname -ErrorAction Stop
+            Out normal "Done."
         }
-        Write-host " '$Dir2': $($files2.Count) computed hash"
 
-        # Compare
-        Write-Host "Computing files having the same hash in both directories..."
-        $result = @( compare-object $files2  $files1 -Property Hash -ExcludeDifferent -IncludeEqual -Passthru)
-        Write-host "`$result = identical Hash: $($result.Count)"
     }
+}
 
-    write-host ""
-    write-host "Then end."
+Out normal ""
+Out normal "END OK."
 
 }
 catch {

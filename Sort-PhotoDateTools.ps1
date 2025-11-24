@@ -104,7 +104,7 @@ Write-Verbose "ok, ExifTool version ${exiftool_version} is available in '${exift
 $EXIFTOOL_WRITABLE_EXTENSION_LIST = ('.360','.3g2','.3gp','.aax','.ai','.arq','.arw','.avif','.cr2','.cr3','.crm','.crw','.cs1','.dcp','.dng','.dr4','.dvb','.eps','.erf','.exif','.exv','.f4a','.f4v','.fff','.flif','.gif','.glv','.gpr','.hdp','.heic','.heif','.icc','.iiq','.ind','.insp','.jng','.jp2','.jpeg','.jpg','.jxl','.lrv','.m4a','.m4v','.mef','.mie','.mng','.mos','.mov','.mp4','.mpo','.mqv','.mrw','.nef','.nksc','.nrw','.orf','.ori','.pbm','.pdf','.pef','.pgm','.png','.ppm','.ps','.psb','.psd','.qtif','.raf','.raw','.rw2','.rwl','.sr2','.srw','.thm','.tiff','.vrd','.wdp','.webp','.x3f','.xmp')
 
 # Non-photo file extensions: extensions of files to exclude from photo processing (Exiftool commands, Get-CHildItem, etc.) 
-$NON_PHOTO_EXTENSION_LIST = ( '.json','.html','.db','.jbf','.db@SynoEAStream','.jpg@SynoEAStream','.pdf@SynoEAStream' )
+$NON_PHOTO_EXTENSION_LIST = ( '.json','.xml','.html','.db','.jbf','.db@SynoEAStream','.jpg@SynoEAStream','.pdf@SynoEAStream' )
 
 # Get-CHildItem arguments for excluded file extensions, i.e. non-photo files: ( '*.json', '*.html', ... )
 $NOT_PHOTO_EXCLUDE_EXTENSION_GCI_ARGS = @( $NON_PHOTO_EXTENSION_LIST | ForEach-Object { '*' + $_ } )
@@ -134,6 +134,12 @@ $MAX_SECONDS_IDENTICAL_DATE_DIFF = 1
 
 # Camera maker short name list, to simplify CamModel field computing (See function Build_CamModel)
 $CAMERA_MAKER_SHORT_NAME_LIST = ( 'APPLE', 'CANON', 'KODAK', 'ELITE', 'NIKON', 'NINTENDO', 'OLYMPUS', 'PANASONIC', 'PENTAX', 'SAMSUNG', 'SONY', 'WIKO', 'XIAOMI' )
+
+# Name of the file containing the hash information for all photo files in the directory and all its subdirectories. Created with Export-Clixml
+$PHOTO_HASH_RECURSE_FILENAME = '.photo_hash_recurse.Cli.xml'
+# Name of the file containing the hash information for all photo files in the directory (but NOT its subdirectories). Created with Export-Clixml
+$PHOTO_HASH_FILENAME = '.photo_hash.Cli.xml'
+
 
 <#
 .SYNOPSIS
@@ -539,7 +545,7 @@ Return:
        
         # Get the file object, throw an exception if it does not exist
         $file = Get-Item $LiteralPath
-        if ( $file -isnot [System.IO.FileSystemInfo] ) {
+        if ( $file -isnot [System.IO.FileInfo] ) {
             throw "The file does not exist: '${LiteralPath}'"
         }
 
@@ -671,6 +677,43 @@ Class PhotoInfo {
         $this.DateInFileName                = Get_DateInFileName $this.FullName
         $this.LastWriteTime                 = $file.LastWriteTime
         $this.CamModel                      = $CamModel
+     }
+
+}
+
+
+# HashInfo class, to store the relative path and hash code of a photo file
+Class HashInfo {  
+    [string]                $RelativePath               # Relative path of the file, relative to a parent directory. Example: '/2016/2016-01/2016-01-05_14-59-09.jpg'
+    [int64]                 $FileLength                 # Length of the file
+    [string]                $Hash                       # Hash of the file
+
+    # Constructor: requires the FullName and the character index in FullName for the start of the relative path of the file
+    # Example: $new_hashinfo = [HashInfo]::New('/home/denis/Documents/photo_sets/nostrucs/photo/2016/2016-01/2016-01-01_12-59-42.jpg', '/home/denis/Documents/photo_sets/nostrucs/photo'.Length )
+    HashInfo( [string]$FullName, [Int64]$Relative_Index ) { 
+        $FileInfo = Get-Item -LiteralPath $FullName -ErrorAction Stop
+        if ( $FileInfo -isnot [System.IO.FileInfo] ) { throw "Not a file: '$FullName'" }
+        $this.RelativePath                  = ($FileInfo.FullName).Substring($Relative_Index)
+        $this.FileLength                    = $FileInfo.Length
+        $this.Hash                          = (Get-FileHash $FileInfo.FullName).Hash
+     }
+
+    # Constructor: requires a [System.IO.FileInfo] object and the character index in FullName for the start of the relative path of the file
+    # Example: 
+    # $file_o = Get-Item '/home/denis/Documents/photo_sets/nostrucs/photo/2016/2016-01/2016-01-01_12-59-42.jpg'
+    # $new_hashinfo = [HashInfo]::New( $file_o, 47 )
+    HashInfo( [System.IO.FileInfo]$FileInfo, [Int64]$Relative_Index ) { 
+        $this.RelativePath                  = ($FileInfo.FullName).Substring($Relative_Index)
+        $this.FileLength                    = $FileInfo.Length
+        $this.Hash                          = (Get-FileHash $FileInfo.FullName).Hash
+     }
+
+    # Constructor: requires the relative path, the file length and the hash: WARNING: Arguments are not verified, they are stored AS IS.
+    # Example: $new_hashinfo = [HashInfo]::New('/2011-06-01_15-42-20.jpg', 667223, '16B5E5611BAA2DF531D90C97035C1122A486E6348E6EA5C9BB63989BBCA08E28' )
+    HashInfo( [string]$RelativePath, [Int64]$FileLength, [string]$Hash ) { 
+        $this.RelativePath                  = $RelativePath 
+        $this.FileLength                    = $FileLength
+        $this.Hash                          = $Hash
      }
 
 }
@@ -1071,10 +1114,13 @@ Get the photo files of a directory, excluding non-photo file extensions
 param (
     # The directory to scan, where are the photo files
     [Parameter(Mandatory, Position = 0)]
-    [string]$Photo_Directory
+    [string]$Photo_Directory,
+
+    # Get also the files from the subdirectories?
+    [switch]$Recurse
 )
         
-    Get-ChildItem -LiteralPath $Photo_Directory -Recurse -File -Exclude $NOT_PHOTO_EXCLUDE_EXTENSION_GCI_ARGS
+    Get-ChildItem -LiteralPath $Photo_Directory -Recurse:${Recurse} -File -Exclude $NOT_PHOTO_EXCLUDE_EXTENSION_GCI_ARGS
 
 }
 
@@ -1087,19 +1133,22 @@ Count the photo/video files in a directory.
 Count the photo/video files in a directory.
 Return 0 if the directory does not exist.
 .EXAMPLE
-$photo_dir_count = Count_photo_dir $photo_dir
+$photo_dir_count = Count_photo_dir $photo_dir -Recurse
 #>
 [CmdletBinding()]
     param (
         # The directory to check, where the photo files should be
         [Parameter(Mandatory, ValueFromPipeline, Position = 0)]
-        [string]$photo_dir
+        [string]$Photo_Dir,
+
+        [switch]$Recurse
+
     )
     process {
-        Write-Verbose "Counting photo  files in '${photo_dir}'..."
+        Write-Verbose "Counting photo  files in '${Photo_Dir}'..."
         $photo_dir_count = 0
-        if ( Test-Path $photo_dir -PathType Container ) {
-            $photo_files = @( Gci_Photo_Files $photo_dir )
+        if ( Test-Path $Photo_Dir -PathType Container ) {
+            $photo_files = @( Gci_Photo_Files $Photo_Dir -Recurse:${Recurse} )
             $photo_dir_count = $photo_files.Count
         }
         Write-Verbose "... ${photo_dir_count} photo files."
@@ -1180,100 +1229,120 @@ process {
 }
 
 
-function Export_Clixml_CalculatedData {
+function Get_Directory_Photo_Hash_Export {
 <#
 .SYNOPSIS
-Export photo file data, to save time for subsequent executions when data will be imported and not calculated again.
+Get [HashInfo] objects for all photo files in a directory, recursively or not.
 .DESCRIPTION
-Export photo file data, to save time for subsequent executions when data will be imported and not calculated again.
+Get [HashInfo] objects for all photo files in a directory, recursively or not.
 
-Throw an exception if the data set BASE directory does not exist.
+For the first call for a directory, the [HashInfo] list is computed and by default exported with Export-Clixml, as a '.photo_hash.Cli.xml' file in this directory (-Recurse: '.photo_hash_recurse.Cli.xml').
+
+If a '.photo_hash.Cli.xml' file already existed in this directory from a previous call (-Recurse: '.photo_hash_recurse.Cli.xml') then it is imported with Import-Clixml to get the [HashInfo] list more quickly.
+The imported [HashInfo] is quickly verified to ensure it is still valid for the directory content. 
+If not, it means the directory content changed after the export file has been created, then the export file is deleted and, the [HashInfo] list is computed again and re-exported again.
+
+The -No_Cli_xml switch prevents both import and export feature. It will always compute the [HashInfo] list, ignoring any existing '.photo_hash.Cli.xml' or '.photo_hash_recurse.Cli.xml' file and 
+not exporting anything.
 .EXAMPLE
-Export_Clixml_CalculatedData 'nostrucs' 'photo_list.xml' ([ref]$photo_list)
+
 #>
 [CmdletBinding()]
-    param (
-        # The name of the photo data set
-        [Parameter(Mandatory, Position = 0)]
-        [string]$photoset_name,
+param (
+    # The directory to scan, where are the photo files
+    [Parameter(Mandatory, Position = 0)]
+    [string]$Directory_FullName,
 
-        # The name of the export file. Any path is ignored in this parameter, only the file name is kept. Ex: '~/Documents/photo_list.xml' is changed to 'photo_list.xml'
-        [Parameter(Mandatory, Position = 1)]
-        [string]$export_file_name,
-        
-        # Calculated data to export
-        [Parameter(Mandatory, Position = 2)]
-        [ref]$data_to_export
+    # Process the subdirectories?
+    [Parameter()]
+    [switch]$Recurse,
 
-    )
+    # Do not import or export any '.photo_hash.Cli.xml' or '.photo_hash_recurse.Cli.xml' file, so force to compute the [HashInfo] list 
+    [Parameter()]
+    [switch]$No_Cli_xml
+)
 
-    # Ignore any path from the export_file_name argument
-    $export_file_name = [System.IO.FileInfo]::New($export_file_name).Name
+    # Check the photo directory
+    $dir = Get-Item $Directory_FullName
+    if ( $dir -isnot [System.IO.DirectoryInfo] ) {
+        throw "This not a directory: '${Directory_FullName}'"
+    }
+    $Directory_FullName = $dir.FullName
 
-    # Directory for exporting variables, to avoid recalculating.
-    # Create it if needed, unless the data set base directory does not exist: in this case throw an exception.
-    $calculated_dir = get_photoset_dir $photoset_name 'calculated_dir'
+    # String Index to compute the relative file paths, relative to the top directory full name
+    $relative_index =  $Directory_FullName.Length
 
-    $exportXML_file = Join-Path $calculated_dir $export_file_name
-    if ( -not (Test-Path $exportXML_file -IsValid) ) {
-        Throw "Invalid path '${exportXML_file}'"
+    # result
+    $hashinfo_list = $null
+    # current photo file list
+    $photo_file_list = $null
+
+    # Import previous results from an existing .cli.xml?
+    if ( -not $No_Cli_xml ) {
+
+        # path of the exported results
+        if ( $Recurse ) {
+            $export_cli_xml_file = Join-Path $Directory_FullName $PHOTO_HASH_RECURSE_FILENAME
+        }
+        else {
+            $export_cli_xml_file = Join-Path $Directory_FullName $PHOTO_HASH_FILENAME
+        }
+
+        if ( Test-Path $export_cli_xml_file ) {
+            try {
+                Out normal -NoNewLine "Importing the precalculated hash data for files in '$Directory_FullName'... "
+                [List[HashInfo]]$hashinfo_list = @( Import-Clixml $export_cli_xml_file | Foreach-Object { [HashInfo]::New( ($_.RelativePath), ($_.FileLength), ($_.Hash) ) })
+                Out normal "Done."
+
+                Out normal -NoNewLine "Quick checking the imported data... "
+                $photo_file_list = @( Gci_Photo_Files $Directory_FullName -Recurse:${Recurse} )
+                if ( $photo_file_list.count -ne $hashinfo_list.Count ) {
+                    throw "The file count does not match"
+                }
+
+                $file_check_list = @( $photo_file_list | Select-Object Name, @{n='RelativePath'; e={(($_.FullName).SubString($relative_index))}}, @{n='FileLength'; e={$_.Length}} )
+
+                $relativepath_equal = @( compare-object $hashinfo_list  $file_check_list -Property RelativePath,FileLength -ExcludeDifferent -IncludeEqual)
+                if ( $relativepath_equal.Count -ne $hashinfo_list.Count ) {
+                    throw "The file relative names or length do not match"
+                }
+                Out normal "Done."
+            }
+            catch {
+                $hashinfo_list = $null
+                # The exported [HashInfo] file is no longer accurate, we delete it
+                Remove-Item -Force $export_cli_xml_file
+                Out Warning "NOT ok: The hash data must be re-calculated for all files: $_"
+            }
+        }
     }
 
-    Write-Verbose "Exporting calculated data to '${exportXML_file}'... "
-    if ( Test-Path $exportXML_file ) {
-        Remove-Item -LiteralPath $exportXML_file
+    # Compute the [HashInfo] list if it has not been previously imported and verified. Export it (do not if -No_Cli_xml)
+    if ( $null -eq $hashinfo_list ) {
+
+        Out normal "Computing Hash for files in '$Directory_FullName' (recurse:${recurse})..."
+        if ( $null -eq $photo_file_list ) {
+            $photo_file_list = @( Gci_Photo_Files $Directory_FullName -Recurse:${Recurse} )
+        }
+        [List[HashInfo]]$hashinfo_list = @( $photo_file_list | ForEach-Object { [HashInfo]::New( $_, $relative_index ) } )
+    
+        # Export 
+        if ( -not $No_Cli_xml ) {
+            Write-Verbose "Exporting [HashInfo] list to '${export_cli_xml_file}'"
+            $hashinfo_list | Export-Clixml -Force -LiteralPath $export_cli_xml_file
+        }
     }
 
-    $data_to_export.Value | Export-Clixml $exportXML_file
+
+    # return the result
+
+    return $hashinfo_list
+
 }
 
-function Import_Clixml_CalculatedData {
-<#
-.SYNOPSIS
-Import photo file data, that was calculated and exported previously, to save time. (not calculated again.)
-.DESCRIPTION
-Import photo file data, that was calculated and exported previously, to save time. (not calculated again.)
 
-Return the imported data, output of Import-Clixml.
-Return $null if the data file to import does not exist.
 
-Throw an exception if the data set BASE directory does not exist.
-.EXAMPLE
-$photos_list = Import_Clixml_CalculatedData 'nostrucs' 
-#>
-[CmdletBinding()]
-    param (
-        # The name of the photo data set
-        [Parameter(Mandatory, Position = 0)]
-        [string]$photoset_name,
-        
-        # The name of the file to import. Any path is ignored in this parameter, only the file name is kept. Ex: '~/Documents/photo_list.xml' is changed to 'photo_list.xml'
-        [Parameter(Mandatory, Position = 1)]
-        [string]$import_file_name
-
-    )
-
-    # Ignore any path from the import_file_name argument
-    $import_file_name = [System.IO.FileInfo]::New($import_file_name).Name
-
-    # Directory for exporting variables, to avoid recalculating.
-    # Create it if needed, unless the data set base directory does not exist: in this case throw an exception.
-    $calculated_dir = get_photoset_dir $photoset_name 'calculated_dir'
-
-    $importXML_file = Join-Path $calculated_dir $import_file_name
-
-    if ( -not (Test-Path $importXML_file -PathType Leaf) ) {
-        return $null
-    }
-
-    $date_export = (Get-ChildItem -LiteralPath $importXML_file).LastWriteTime.ToString($DEFAULT_DATE_FORMAT_PWSH)
-    Write-Verbose "Importing from '${importXML_file}' ${date_export} ... "
-    Import-Clixml $importXML_file
-}
-
- 
 $Is_SortPhotoDateTools_Loaded = $true
-
 
 # top-level try-catch to display detailed error messages 
 }

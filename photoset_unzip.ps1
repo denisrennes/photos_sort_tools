@@ -110,7 +110,7 @@ Foreach ( $zip_file in $zip_files ) {
 
 # Results
 Out normal "Counting the extracted photos..." -NoNewLine
-$photo_count = Count_photo_dir $photo_dir
+$photo_count = Count_photo_dir $photo_dir -Recurse
 Out normal ": ${photo_count}"
 
 
