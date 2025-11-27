@@ -1,10 +1,26 @@
 <#
 .SYNOPSIS
-Compute the Hash of every file from 2 directories, then get the hash duplicates
+Compute the hash of every photo file from 2 directories, get the hash duplicates, present in the two directories, then ask to delete them from the second directory.
+If only one directory argument then the hash fo the photo files are computed.
 .DESCRIPTION
-Compute the Hash of every file from 2 directories, then get the hash duplicates
+With two directory arguments, $Dir1 and $Dir2:
+- Get the hash of every photo file from 2 directories
+- Get the photo files from $Dir2 having the same hash than a file in $Dir1
+- Ask the user to delete them from $Dir2
+- Return the [HashInfo] list of the photo files from $Dir2 having the same hash than a file in $Dir1 (they were deleed or not, depending on the user answer)
+
+With one directory arguments, $Dir1:
+- Get the hash of every photo file from $Dir1
+- Return the [HashInfo] list of the photo files from $Dir1
+
+For the first call for a directory, the [HashInfo] list is computed and exported (Export-Clixml) with Export-Clixml, as a '.photo_hash.Cli.xml' file in this directory (-Recurse: '.photo_hash_recurse.Cli.xml').
+For the next calls for the same directory, the [HashInfo] list is not computed, it is directly imported (Import-Clixml), unless the content of the directory was changed.
+For more details, see the function Get_Directory_Photo_Hash_Export of Sort-PhotoDateTools.ps1 .
+
 .EXAMPLE
-$duplicates = . ./Get_Hash_Duplicates.ps1 '/home/denis/Documents/photo_sets/nostrucs/photo' '/home/denis/Documents/photo_sets/nostrucs/_ALBUMS' $true
+[List[HashInfo]]$duplicates = ./Get_Hash_Duplicates.ps1 '/home/denis/Documents/photo_sets/nostrucs/photo' '/home/denis/Documents/photo_sets/nostrucs/_ALBUMS' -Recurse
+.EXAMPLE
+[List[HashInfo]]$hashinfo_list = ./Get_Hash_Duplicates.ps1 '/home/denis/Documents/photo_sets/gdegau35/photo/Takeout/Google Photos' -Recurse
 #>
 using namespace System.Collections
 using namespace System.Collections.Generic
@@ -48,7 +64,13 @@ $Dir1 = $file_o.FullName
 [List[HashInfo]]$dir1_hashinfo_list = @( Get_Directory_Photo_Hash_Export $Dir1 -Recurse:${Recurse} )
 Out normal " '$Dir1': $($dir1_hashinfo_list.Count) computed hash"
 
-if ( $Dir2 ) {
+if ( -not $Dir2 ) {
+
+    # Only $Dir1 argument: return the computed [HashInfo] objects
+    return $dir1_hashinfo_list
+
+}
+else {
 
     # Check Dir2
     $file_o = Get-Item $Dir2
@@ -61,7 +83,7 @@ if ( $Dir2 ) {
     [List[HashInfo]]$dir2_hashinfo_list = @( Get_Directory_Photo_Hash_Export $Dir2 -Recurse:${Recurse} )
     Out normal " '$Dir2': $($dir2_hashinfo_list.Count) computed hash"
 
-    # Get all files from $Dir2 having a Hash already existing in $Dir1 (Compare-Object does not work here because the same hash value appears multiple times.)
+    # Get files from $Dir2 having a Hash already existing in $Dir1 (Compare-Object does not work here because the same hash value appears multiple times.)
     Out normal -NoNewLine "Searching files from `"${Dir2}`" having a Hash existing in `"${Dir1}`"... " -Highlight_Text $Dir2
     $dir1_hash_hashset = [HashSet[string]]::new()
     $dir1_hashinfo_list.Hash | ForEach-Object { $null = $dir1_hash_hashset.Add($_) }
@@ -85,18 +107,23 @@ if ( $Dir2 ) {
         } Until ( $user_input -in ('y','n') ) 
 
         if ( $user_input -eq 'n' ) {
-            throw "Canceled: the user chose not to delete the files."
+            Out normal "The user chose not to delete the files."
         }
-
-        # Delete the files from Dir2
-        $dir2_same_hash_hashinfo_list.RelativePath | ForEach-Object {
-            $file_fullname = Join-Path $Dir2 $_
-            Out normal -NoNewLine "Deleting `"${file_fullname}`"... " -Highlight_Text ${file_fullname}
-            Remove-Item $file_fullname -ErrorAction Stop
-            Out normal "Done."
+        else {
+            # Delete the files from Dir2
+            $dir2_same_hash_hashinfo_list.RelativePath | ForEach-Object {
+                $file_fullname = Join-Path $Dir2 $_
+                Out normal -NoNewLine "Deleting `"${file_fullname}`"... " -Highlight_Text ${file_fullname}
+                Remove-Item $file_fullname -ErrorAction Stop
+                Out normal "Done."
+            }
         }
 
     }
+
+    # Return the files from $Dir2 having a Hash already existing in $Dir1 
+    Return $dir2_same_hash_hashinfo_list
+
 }
 
 Out normal ""
