@@ -833,9 +833,9 @@ Launch the ExifTool command to get the date Exif tags for the files and return a
 function Get_Directory_PhotoInfo {
 <#
 .SYNOPSIS
-Get [PhotoInfo] objects for all photo files in a photo directory. Non-photo file extensions and directories are excluded.
+Get [PhotoInfo] objects for all photo files in a photo directory. Non-photo file extensions are excluded.
 .DESCRIPTION
-Get [PhotoInfo] objects for all photo files in a photo directory. Non-photo file extensions and directories are excluded.
+Get [PhotoInfo] objects for all photo files in a photo directory. Non-photo file extensions are excluded.
 
 An exception is raised if the directory does not exist.
 .NOTES
