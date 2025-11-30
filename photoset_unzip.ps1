@@ -87,7 +87,7 @@ if ( Test-Path -LiteralPath $photo_dir ) {
 }
 
 Out normal "Creating a new '${photo_dir}'... " -NoNewLine
-New-Item $photo_dir -ItemType Directory 1>$null
+$null = New-Item $photo_dir -ItemType Directory
 Out normal "Done"
 
 Out normal ""

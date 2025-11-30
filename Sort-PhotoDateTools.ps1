@@ -31,7 +31,7 @@ $ProgressPreference = 'SilentlyContinue'
 $Is_SortPhotoDateTools_Loaded = $False
 
 $this_script_name = $MyInvocation.MyCommand.Name
-Write-Verbose "${this_script_name}: Install or verify ExifTool and define functions to help classify photo and video files."
+Write-Verbose "${this_script_name}: Install or verify ExifTool and define functions to help organise photo and video files."
 
 # This script must be dot-sourced called
 $isDotSourced = $MyInvocation.InvocationName -eq '.' -or $MyInvocation.Line -eq ''
@@ -106,7 +106,7 @@ $EXIFTOOL_WRITABLE_EXTENSION_LIST = ('.360','.3g2','.3gp','.aax','.ai','.arq','.
 # Non-photo file extensions: extensions of files to exclude from photo processing (Exiftool commands, Get-CHildItem, etc.) 
 $NON_PHOTO_EXTENSION_LIST = ( '.json','.xml','.html','.db','.jbf','.db@SynoEAStream','.jpg@SynoEAStream','.pdf@SynoEAStream' )
 
-# Get-CHildItem arguments for excluded file extensions, i.e. non-photo files: ( '*.json', '*.html', ... )
+# Get-CHildItem or Get-Item arguments for excluded file extensions, i.e. non-photo files: ( '*.json', '*.html', ... )
 $NOT_PHOTO_EXCLUDE_EXTENSION_GCI_ARGS = @( $NON_PHOTO_EXTENSION_LIST | ForEach-Object { '*' + $_ } )
 
 # Exiftool arguments for excluded file extensions, i.e. non-photo files: ( ''ext', '.json', '--ext', '.html', ... )
@@ -833,9 +833,11 @@ Launch the ExifTool command to get the date Exif tags for the files and return a
 function Get_Directory_PhotoInfo {
 <#
 .SYNOPSIS
-Get [PhotoInfo] objects for all photo files in a photo directory.
+Get [PhotoInfo] objects for all photo files in a photo directory. Non-photo file extensions and directories are excluded.
 .DESCRIPTION
-Get [PhotoInfo] objects for all photo files in a photo directory.
+Get [PhotoInfo] objects for all photo files in a photo directory. Non-photo file extensions and directories are excluded.
+
+An exception is raised if the directory does not exist.
 .NOTES
 PREREQUISITE: 
 ExifTool by Phil Harvey (https://exiftool.org/) must be installed and its directory must be in the PATH environment variable.
@@ -859,7 +861,7 @@ $photo_info_list.Count
     )
             
     # Check the photo directory
-    $dir = Get-Item $Directory_FullName
+    $dir = Get-Item $Directory_FullName -ErrorAction Stop
     if ( $dir -isnot [System.IO.DirectoryInfo] ) {
         throw "Bad Directory_FullName argument for Get_Directory_PhotoInfo(): not a directory."
     }
@@ -875,9 +877,11 @@ $photo_info_list.Count
 function Get_Files_PhotoInfo {
 <#
 .SYNOPSIS
-Get [PhotoInfo] objects for a given list of photo files.
+Get [PhotoInfo] objects for a given list of photo files. Non-photo file extensions and directories are excluded.
 .DESCRIPTION
-Get [PhotoInfo] objects for a given list of photo files.
+Get [PhotoInfo] objects for a given list of photo files. Non-photo file extensions and directories are excluded.
+
+An exception is raised if a file does not exist.
 .NOTES
 PREREQUISITE: 
 ExifTool by Phil Harvey (https://exiftool.org/) must be installed and its directory must be in the PATH environment variable.
@@ -897,16 +901,16 @@ $photo_info_list.Count
         [bool]$Compute_Hash
     )
             
-    # All files must exist and directories are not allowed
+    # All files must exist, must be photo files, not directories: non-photo extensions and directories are excluded
     [List[System.IO.FileInfo]]$file_list = @( $Photo_File_List | ForEach-Object {
         $file = Get-Item $_ -ErrorAction Stop
-        if ( $file -isnot [System.IO.FileInfo] ) {
-            throw "Incorrect Photo_File_List argument: this is not a file: '$_'"
+        if ( ($file -is [System.IO.FileInfo]) -and ($file.Extension  -notin $NON_PHOTO_EXTENSION_LIST) ) {
+            # ok this file is selected
+            $file
         }
-        $file
     } )
 
-    Write-Verbose "Getting photo files data for $($file_list.Count) files..."
+    Write-Verbose "Getting photo files data for $($file_list.Count) photo files..."
 
     # Launch the ExifTool command to get the date Exif tags for the files and return a list of [PhotoInfo] 
     Exiftool_Command_To_PhotoInfo_List ($file_list.FullName) -Recurse $false -Compute_Hash $Compute_Hash
@@ -1218,7 +1222,7 @@ process {
             }
             else {
                 # Create the directory if it does not exist
-                New-Item $result_dir -ItemType Directory 1>$null
+                $null = New-Item $result_dir -ItemType Directory
                 Write-Verbose "The directory '${result_dir} has been created."
             }
         }

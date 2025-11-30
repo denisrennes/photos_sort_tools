@@ -1,0 +1,10 @@
+[Nemo Action]
+Name=move__normalized
+Comment=Move date-normalized photos files to '../Photos/yyyy/yyyy-MM'
+Exec=pwsh -NoLogo -NoExit -File '/home/denis/Documents/photos_sort_tools/move_normalized.ps1' %F
+Terminal=true
+Icon-Name=folder-recent
+Selection=s
+Extensions=dir;
+Quote=single
+Separator=;

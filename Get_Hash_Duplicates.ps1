@@ -66,6 +66,22 @@ if ( $file_o -isnot [System.IO.DirectoryInfo] ) {
 }
 $Dir1 = $file_o.FullName
 
+# Check Recurse: ask if arg not present
+if ( -not $PSBoundParameters.ContainsKey("Recurse") ) {
+        $input_default = 'n'
+        Do {
+            Out normal -NoNewLine "Recurse? (y/n(default)]: "
+            $user_input = Read-Host
+            if (-not $user_input ) { $user_input = $input_default }
+        } Until ( $user_input -in ('y','n') )
+        If ( $user_input -eq 'y' ) {
+            $Recurse = $true
+        }
+        else {
+            $Recurse = $false
+        }
+}
+
 if ( $Dir2 ) {
     # Check Dir2
     $file_o = Get-Item $Dir2

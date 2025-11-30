@@ -1,0 +1,10 @@
+[Nemo Action]
+Name=Get directory photos hashes
+Comment=Get the hashes for photo files in directory %F
+Exec=pwsh -NoLogo -NoExit -File '/home/denis/Documents/photos_sort_tools/Get_Hash_Duplicates.ps1' %F
+Terminal=true
+Icon-Name=folder-recent
+Selection=s
+Extensions=dir;
+Quote=single
+Separator=,

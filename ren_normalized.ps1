@@ -22,7 +22,7 @@ using namespace System.Collections
 using namespace System.Collections.Generic
 [CmdletBinding()]
     param (
-        # The photo files to be renamed with a date-normalized file name. All files must belong to the same Directory.
+        # The photo files to be renamed with a date-normalized file name. All files must belong to the same Directory. Non-photo files will be ignored (non-photo file extension excluded)
         # The list can be provided as a single comma-separated string to handle Nemo file manager actions with multiple selections.
         # A single directory can also be given: its contained files will be processed
         [Parameter(Mandatory, Position = 0)]
@@ -57,11 +57,10 @@ return:
     ' skip: Date-normalized'                 ==> Do not rename because $Force_Already_Normalized is false and the file name is already date-normalized (even though it is not based on the reference property)
     'RENAME to ref date'                     ==> Rename the file, date-normalized and based on its reference date property
 #>
-function Compute_Planned_Name_Change {
+function Compute_Planned_Renaming {
 [CmdletBinding()]
     param (
-        # The photo files to be renamed with a date-normalized file name. All files must belong to the same Directory.
-        # The list can be provided as a single comma-separated string to handle Nemo file manager actions with multiple selections.
+        # The photo file to be renamed with a date-normalized file name.
         [Parameter(Mandatory, Position = 0)]
         [PhotoInfo]$Photo_Info,
 
@@ -102,36 +101,6 @@ if ( (-not (Test-Path variable:Is_SortPhotoDateTools_Loaded)) -or (-not $Is_Sort
     . (Join-Path $PSScriptRoot "Sort-PhotoDateTools.ps1")
 }
 
-# Check the argument $Photo_File_List.
-# The list can be provided as a single semicolon-separated string to handle Nemo file manager actions with multiple selections.
-if ( $Photo_File_List.Count -eq 1 ) {
-    $Photo_File_List = $Photo_File_List -split ';'
-}
-# If this is a single directory argument, then process its contained files
-if ( $Photo_File_List.Count -eq 1 ) {
-    $photo_file = $Photo_File_List[0]
-    try { $file = Get-Item $photo_file -ErrorAction Stop }
-    catch { throw "This file does not exist: '${photo_file}'" }
-    if ( $file -is [System.IO.DirectoryInfo] ) {
-        $Photo_File_List = @( Get-ChildItem -File $photo_file )
-    }
-}
-# All files must exist and must belong to the same directory. Directories are not allowed.
-[List[System.IO.FileInfo]]$file_list = @( $Photo_File_List | ForEach-Object {
-    try { $file = Get-Item $_ -ErrorAction Stop }
-    catch { throw "This file does not exist: '$_'" }
-    if ( $file -isnot [System.IO.FileInfo] ) {
-        throw "Incorrect Photo_File_List argument: this is not a file: '$_'"
-    }
-    $file
-} )
-$dir_list = @( $file_list | Group-Object Directory -NoElement )
-if ( $dir_list.Count -ne 1 ) {
-    throw "All the files must belong to the same directory."
-}
-
-# Parent Directory
-$directory_name = $file_list[0].Directory
 
 # Check the argument $Ref_Prop
 if ( $Ref_Prop ) {
@@ -140,11 +109,48 @@ if ( $Ref_Prop ) {
     }
 }
 
+# Check the argument $Photo_File_List
 
-# Get [List[PhotoInfo]]PhotoInfo_List, the required date values for every file
-[List[PhotoInfo]]$PhotoInfo_List = @( Get_Files_PhotoInfo $file_list -Compute_Hash:$false )
+# The list can be provided as a single semicolon-separated string to handle Nemo file manager actions with multiple selections.
+if ( $Photo_File_List.Count -eq 1 ) {
+    $Photo_File_List = $Photo_File_List -split ';'
+}
 
-# Reference property
+# If this is a single directory argument, then get [PhotoInfo] objects for its files
+$PhotoInfo_List = $null
+if ( $Photo_File_List.Count -eq 1 ) {
+    $directory = $Photo_File_List[0]
+    try { $file = Get-Item $directory -ErrorAction Stop }
+    catch { throw "This file does not exist: '${directory}'" }
+    if ( $file -is [System.IO.DirectoryInfo] ) {
+
+        # One single directory: get [PhotoInfo] objects for its files
+        [List[PhotoInfo]]$PhotoInfo_List = @( Get_Directory_PhotoInfo $directory -Recurse:$false -Compute_Hash:$false )
+    }
+}
+
+if ( $null -eq $PhotoInfo_List ) {
+
+    # NOT a single directory, so list of files: get [PhotoInfo] objects for them.  Non-photo file extensions and directories are excluded.
+    [List[PhotoInfo]]$PhotoInfo_List = @( Get_Files_PhotoInfo $Photo_File_List -Compute_Hash:$false )
+
+    # All photo files must belong to the same directory
+    $dir_list = @( $PhotoInfo_List | Group-Object Directory -NoElement )
+    if ( $dir_list.Count -ge 2 ) {
+        throw "All the files must belong to the same directory."
+    }
+}
+
+if ( $PhotoInfo_List.count -eq 0 ) {
+    throw "No photo files."
+}
+
+
+# Parent Directory
+$directory_name = $PhotoInfo_List[0].Directory
+
+
+# Compute the Reference property if it is not provided as an argument
 if ( $Ref_Prop ) {
     # the referenece property is given as argument
     $ref_date_prop = $Ref_Prop
@@ -164,10 +170,6 @@ else {
 
 # Here $ref_date_prop cannot be empty: without any other property, it should be 'LastWriteTime'
 if ( -not $ref_date_prop ) { throw "`$ref_date_prop is not supposed to be empty here." }
-
-
-
-
 
 
 
@@ -193,7 +195,7 @@ Do {
                         @{ Name='DateInFileName';   Expression={ date_diff_ref_tostring $_.DateInFileName   ($ref_date_prop -eq 'DateInFileName')    ($ref_date_prop ? $_.$ref_date_prop : $null) } },
                         @{ Name='LastWriteTime';    Expression={ date_diff_ref_tostring $_.LastWriteTime    ($ref_date_prop -eq 'LastWriteTime')     ($ref_date_prop ? $_.$ref_date_prop : $null) } },
                         CamModel,
-                        @{ Name='Rename_Or_Skip';   Expression={ Compute_Planned_Name_Change $_ $ref_date_prop $Force_Already_Normalized } }
+                        @{ Name='Rename_Or_Skip';   Expression={ Compute_Planned_Renaming $_ $ref_date_prop $Force_Already_Normalized } }
         | Format-Table -AutoSize | Out-String -Stream 
         
     $formatted_table[0..2] | Out normal -Highlight_Text $ref_date_prop
